@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <!-- ============================ TELA DE CONEXAO ============================ -->
+    <ScrollView
+        android:id="@+id/connectRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:letterSpacing="0.02"
+                android:text="@string/title"
+                android:textColor="@color/text"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="28dp"
+                android:text="@string/subtitle"
+                android:textColor="@color/muted"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_panel"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    style="@style/PanelLabel"
+                    android:text="ONDE VOCÊ ESTÁ" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/profileHomeBtn"
+                        style="@style/RemoteButton"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        android:text="Casa" />
+
+                    <TextView
+                        android:id="@+id/profileAwayBtn"
+                        style="@style/RemoteButton"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="Fora" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/PanelLabel"
+                    android:text="ENDEREÇO DO PC" />
+
+                <EditText
+                    android:id="@+id/hostInput"
+                    style="@style/InputField"
+                    android:hint="@string/host_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="textUri"
+                    android:maxLength="60" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/portInput"
+                        style="@style/InputField"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:hint="@string/port_hint"
+                        android:importantForAutofill="no"
+                        android:inputType="number"
+                        android:maxLength="5"
+                        android:text="8765" />
+
+                    <EditText
+                        android:id="@+id/pinInput"
+                        style="@style/InputField"
+                        android:layout_width="0dp"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:hint="@string/pin_hint"
+                        android:importantForAutofill="no"
+                        android:inputType="numberPassword"
+                        android:maxLength="12" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/connectBtn"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="18dp"
+                    android:background="@drawable/bg_btn_primary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:text="@string/connect"
+                    android:textColor="#FBEEF2"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/scanBtn"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_btn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:text="@string/scan"
+                    android:textColor="@color/text"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/connectStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:textColor="@color/muted"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="26dp"
+                android:gravity="center"
+                android:lineSpacingExtra="3dp"
+                android:text="@string/usb_help"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ============================ TELA REMOTA ============================ -->
+    <FrameLayout
+        android:id="@+id/remoteRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <com.localcontrol.RemoteView
+            android:id="@+id/remoteView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:id="@+id/closeBtn"
+                style="@style/RemoteButton"
+                android:text="Sair"
+                android:textColor="@color/danger" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/bottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:padding="4dp">
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginBottom="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="conectando…"
+                android:textColor="@color/text"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/modeBtn"
+                    style="@style/RemoteButton"
+                    android:text="Toque" />
+
+                <TextView
+                    android:id="@+id/kbBtn"
+                    style="@style/RemoteButton"
+                    android:text="Teclado" />
+
+                <TextView
+                    android:id="@+id/keysBtn"
+                    style="@style/RemoteButton"
+                    android:text="Teclas" />
+
+                <TextView
+                    android:id="@+id/qualityBtn"
+                    style="@style/RemoteButton"
+                    android:text="Q: Média" />
+
+                <TextView
+                    android:id="@+id/monitorBtn"
+                    style="@style/RemoteButton"
+                    android:layout_marginStart="4dp"
+                    android:text="MON 1"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/hideBtn"
+                    style="@style/RemoteButton"
+                    android:text="▾" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/showBtn"
+            style="@style/RemoteButton"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="8dp"
+            android:text="▴"
+            android:visibility="gone" />
+
+        <HorizontalScrollView
+            android:id="@+id/keysPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="64dp"
+            android:background="#CC000000"
+            android:padding="4dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/keysRow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <EditText
+            android:id="@+id/kbInput"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:alpha="0"
+            android:background="@null"
+            android:imeOptions="flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:inputType="textVisiblePassword|textMultiLine|textNoSuggestions"
+            android:maxLength="120" />
+    </FrameLayout>
+
+</FrameLayout>
