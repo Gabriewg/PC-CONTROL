@@ -354,6 +354,57 @@ Este projeto foi feito para uso pessoal em rede confiável:
 - [ ] Conexão sem digitar IP (fallback entre últimos endereços, MagicDNS e LAN)
 - [ ] Pareamento por QR Code (`localcontrol://host:porta?pin=...`)
 
+### TLS e proteção do PIN (planejado)
+
+**Problema.** Hoje o protocolo é TCP puro: os quadros JPEG, o PIN e o texto
+digitado trafegam em texto claro. Em rede local confiável é aceitável, mas em
+Wi-Fi público qualquer aparelho na mesma rede consegue ler (ou alterar) o
+tráfego. O PIN autentica, mas não criptografa — ele viaja aberto no `HELLO`.
+
+**Objetivo.** Criptografar o transporte sem mudar o formato das mensagens e sem
+depender de um certificado público (o servidor roda em IP local).
+
+**Abordagem.** TLS com certificado autoassinado gerado na primeira execução e
+*pinning* da impressão digital no app.
+
+Servidor (`server/server.py`):
+
+- gerar `server/cert.pem` + `server/key.pem` na primeira execução (biblioteca
+  `cryptography`), ou aceitar `--cert` / `--key` apontando para um par existente;
+- criar um `ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)`, carregar o certificado e
+  passar `ssl=ctx` para `asyncio.start_server(...)`;
+- imprimir no banner a **impressão digital SHA-256** do certificado, para o
+  usuário conferir no app;
+- manter a descoberta UDP fora do TLS (ela só devolve nome/porta/versão) e
+  adicionar `--no-tls` para diagnóstico e compatibilidade.
+
+App (`android/.../RemoteClient.kt`):
+
+- trocar `Socket` por `SSLSocket` com um `TrustManager` que aceita **apenas** o
+  certificado/impressão digital configurado (*pinning*) — nunca "confiar em
+  tudo";
+- no primeiro pareamento, exibir a impressão digital recebida e pedir
+  confirmação; guardá-la no `SharedPreferences`;
+- erro de certificado diferente deve gerar mensagem clara (possível MITM), sem
+  cair para conexão insegura.
+
+PIN (independente do TLS, melhoria barata):
+
+- limitar tentativas por IP (ex.: 5 em 5 minutos) com atraso progressivo;
+- comparar em tempo constante (`hmac.compare_digest`);
+- exigir no mínimo 6 dígitos quando rodar sem TLS.
+
+Critérios de aceite:
+
+1. app conecta com TLS e o vídeo/entrada funcionam normalmente;
+2. certificado diferente (MITM) → app recusa com erro claro;
+3. 5 PINs errados → bloqueio temporário, sem afetar conexões legítimas;
+4. `--no-tls` continua funcionando para depuração;
+5. nenhuma mudança no formato das mensagens (TLS é só o transporte).
+
+Impacto esperado: handshake de ~1–2 ms na conexão e custo de CPU baixo (AES-NI),
+sem perda perceptível de FPS.
+
 ## 10. Contribuindo
 
 Contribuições são bem-vindas! Leia o [CONTRIBUTING.md](CONTRIBUTING.md) para
