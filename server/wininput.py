@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """
 Injecao de mouse e teclado no Windows via SendInput.
 
@@ -10,9 +11,12 @@ com acentos/unicode.
 from __future__ import annotations
 
 import ctypes
+import os
 from ctypes import wintypes
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
 
 ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
 
@@ -39,6 +43,14 @@ KEY_UNICODE = 0x0004
 KEY_SCANCODE = 0x0008
 
 MAPVK_VK_TO_VSC = 0
+
+# Area de trabalho / elevacao (deteccao de tela protegida e janela de admin)
+DESKTOP_READOBJECTS = 0x0001
+UOI_NAME = 2
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+TOKEN_QUERY = 0x0008
+TOKEN_ELEVATION = 20
+ERROR_ACCESS_DENIED = 5
 
 # Teclas virtuais (Virtual-Key codes)
 VK = {
@@ -131,6 +143,47 @@ user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
 user32.SendInput.restype = wintypes.UINT
 user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
 user32.MapVirtualKeyW.restype = wintypes.UINT
+
+# Desktop de entrada (o que recebe mouse/teclado agora). Em UAC, bloqueio ou
+# login o Windows troca para uma area segura ("Winlogon"), inacessivel ao
+# processo comum; OpenInputDesktop falha ou devolve outro nome.
+user32.OpenInputDesktop.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+user32.OpenInputDesktop.restype = wintypes.HANDLE
+user32.CloseDesktop.argtypes = (wintypes.HANDLE,)
+user32.CloseDesktop.restype = wintypes.BOOL
+user32.GetUserObjectInformationW.argtypes = (
+    wintypes.HANDLE,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.DWORD),
+)
+user32.GetUserObjectInformationW.restype = wintypes.BOOL
+
+# Janela em primeiro plano e dono do processo (para achar programas elevados).
+user32.GetForegroundWindow.argtypes = ()
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+kernel32.CloseHandle.restype = wintypes.BOOL
+advapi32.OpenProcessToken.argtypes = (
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.HANDLE),
+)
+advapi32.OpenProcessToken.restype = wintypes.BOOL
+advapi32.GetTokenInformation.argtypes = (
+    wintypes.HANDLE,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.DWORD),
+)
+advapi32.GetTokenInformation.restype = wintypes.BOOL
 
 
 def _send(inputs: list[INPUT]) -> None:
@@ -327,3 +380,88 @@ def _unicode_unit(unit: int, up: bool) -> INPUT:
     item.type = INPUT_KEYBOARD
     item.ki = KEYBDINPUT(0, unit, KEY_UNICODE | (KEY_UP if up else 0), 0, 0)
     return item
+
+
+# ---------------------------------------------------------------- tela protegida
+
+def input_desktop_state() -> bool | None:
+    """Diz se a entrada esta em uma area segura do Windows.
+
+    Retorna True quando a area de trabalho de entrada nao e' a "Default"
+    (UAC, tela de bloqueio, login ou Ctrl+Alt+Del), False quando e' a Default e
+    None quando nao foi possivel verificar. Falha de acesso tambem conta como
+    protegida: e' justamente o que acontece na area segura.
+    """
+    hdesk = user32.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
+    if not hdesk:
+        if ctypes.get_last_error() == ERROR_ACCESS_DENIED:
+            return True
+        return None
+    try:
+        buf = ctypes.create_unicode_buffer(256)
+        needed = wintypes.DWORD()
+        ok = user32.GetUserObjectInformationW(
+            hdesk, UOI_NAME, buf, ctypes.sizeof(buf), ctypes.byref(needed)
+        )
+        if not ok:
+            return None
+        return buf.value.lower() != "default"
+    finally:
+        user32.CloseDesktop(hdesk)
+
+
+def process_elevated(pid: int) -> bool | None:
+    """Token do processo esta elevado? None = nao deu para consultar.
+
+    Acesso negado ao processo/token e' tratado como "provavel administrador":
+    e' o caso tipico de um processo protegido por UIPI.
+    """
+    if pid <= 0:
+        return None
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return True if ctypes.get_last_error() == ERROR_ACCESS_DENIED else None
+    try:
+        token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(handle, TOKEN_QUERY, ctypes.byref(token)):
+            return True if ctypes.get_last_error() == ERROR_ACCESS_DENIED else None
+        try:
+            elevation = wintypes.DWORD()
+            size = wintypes.DWORD()
+            ok = advapi32.GetTokenInformation(
+                token,
+                TOKEN_ELEVATION,
+                ctypes.byref(elevation),
+                ctypes.sizeof(elevation),
+                ctypes.byref(size),
+            )
+            if not ok:
+                return None
+            return bool(elevation.value)
+        finally:
+            kernel32.CloseHandle(token)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def self_elevated() -> bool:
+    """O proprio servidor esta rodando como administrador?"""
+    return process_elevated(os.getpid()) is True
+
+
+def foreground_is_elevated() -> bool:
+    """A janela em primeiro plano pertence a um processo elevado?
+
+    Quando o servidor ja esta elevado nao ha bloqueio de UIPI, entao a
+    verificacao e' dispensada.
+    """
+    if self_elevated():
+        return False
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if not pid.value or pid.value == os.getpid():
+        return False
+    return process_elevated(pid.value) is True

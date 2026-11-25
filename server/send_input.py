@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Envia um evento de teclado/mouse para o servidor (diagnostico)."""
 
 from __future__ import annotations

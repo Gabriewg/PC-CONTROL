@@ -226,6 +226,28 @@
                 android:textColor="@color/danger" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/warningBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="46dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_warning"
+            android:clickable="false"
+            android:focusable="false"
+            android:gravity="center"
+            android:lineSpacingExtra="2dp"
+            android:padding="10dp"
+            android:shadowColor="#66000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="2"
+            android:textColor="#FBEEF2"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/bottomBar"
             android:layout_width="match_parent"

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Icone de bandeja do Windows e aviso de conexao ativa.
 
 O icone muda de cor quando alguem esta controlando o PC e mostra uma notificacao

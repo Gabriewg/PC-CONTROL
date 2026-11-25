@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """
 Servidor de controle remoto local (estilo AnyDesk) para Windows.
 
@@ -16,6 +17,8 @@ Protocolo (os dois sentidos): [4 bytes tamanho][1 byte tipo][payload]
   0x03 CURSOR   : 2 bytes X + 2 bytes Y (atualizacao barata do cursor)
   0x10 HELLO    : JSON do app: nome/tela + "mac" (HMAC-SHA256 do nonce)
   0x11 INPUT    : JSON com evento de mouse/teclado
+  0x12 INFO     : JSON {"warn":"secure_desktop"|"admin_window","on":bool}
+                  (aviso nao fatal; {"error":...} continua sendo fatal)
   0x13 PING     : JSON {"ts": ...}   (cliente -> servidor)
   0x14 PONG     : JSON {"ts": ...}   (servidor -> cliente)
   0x15 CHALLENGE: JSON {"nonce","salt","iter","kdf"} enviado antes do HELLO
@@ -105,7 +108,7 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "1.4"
+VERSION = "1.5"
 
 # Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
 # Nenhum deles vai para o Git: veja .gitignore.
@@ -212,6 +215,15 @@ class Grabber:
         self.backend = "gdi" if self._gpu_disabled else "dxgi"
         self._cache: bytes | None = None
         self._cache_kw: tuple[int, int] = (0, 0)
+        # Depois de um erro do DXGI (ACCESS_LOST quando o Windows troca para a
+        # area segura) tentamos recriar o duplicador em vez de desligar a GPU
+        # para sempre. Enquanto isso o GDI mantem o video vivo.
+        self._gpu_retry_at = 0.0
+        self._gpu_error_logged = False
+        self._gdi_error_logged = False
+        self._dxgi_create_logged = False
+        self._black_since = 0.0
+        self._last_capture_at = 0.0
         # monitor mss (1..N) -> output DXGI (0..N-1). O dxcam numera os outputs
         # pela ordem do DXGI, que NAO bate com a do mss (que segue
         # EnumDisplayMonitors). Sem esse mapa o video vinha de um monitor e os
@@ -281,12 +293,17 @@ class Grabber:
         first = self._dxgi_outputs.get(index, max(0, index - 1))
         candidates = [first] + [i for i in range(total) if i != first]
 
+        criados = 0
         for out_idx in candidates:
             try:
                 cam = dxcam.create(output_idx=out_idx, output_color="BGR")
             except Exception as exc:  # noqa: BLE001
-                log(f"output DXGI {out_idx} indisponivel ({exc!r})")
+                if not self._dxgi_create_logged:
+                    log(f"output DXGI {out_idx} indisponivel ({exc!r})")
+                    self._dxgi_create_logged = True
                 continue
+            criados += 1
+            self._dxgi_create_logged = False
             rect = self._output_rect(cam)
             if rect is not None and rect != target:
                 try:
@@ -301,6 +318,13 @@ class Grabber:
             extra = "" if rect is None else f" {rect[0]},{rect[1]} {rect[2]}x{rect[3]}"
             log(f"captura via GPU (Desktop Duplication, monitor {index} -> DXGI {out_idx}{extra})")
             return cam
+
+        if criados == 0:
+            # Provavelmente a area segura esta ativa e o DXGI nao pode ser
+            # aberto agora. Nao desliga a GPU para sempre: tenta de novo.
+            self._gpu_retry_at = time.monotonic() + 2.0
+            self.backend = "gdi"
+            return None
 
         log("nenhum output DXGI corresponde ao monitor pedido; usando GDI")
         self._gpu_disabled = True
@@ -343,6 +367,7 @@ class Grabber:
 
     def _capture(self, width: int, quality: int) -> tuple[bytes | None, bool]:
         t0 = time.perf_counter()
+        self._last_capture_at = time.monotonic()
         monitors = self._ordered_monitors()
         index = self.monitor_index if 0 < self.monitor_index < len(monitors) else 1
         mon = monitors[index]
@@ -350,18 +375,31 @@ class Grabber:
 
         arr = None
         is_bgr = False
+        now = time.monotonic()
 
-        if not self._gpu_disabled:
+        if not self._gpu_disabled and now >= self._gpu_retry_at:
             cam = self._camera(index)
             if cam is not None:
                 try:
                     arr = cam.grab()
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    # ACCESS_LOST/E_ACCESSDENIED acontecem quando o Windows
+                    # troca para a area segura. Nao desliga a GPU para sempre:
+                    # usa GDI agora e tenta recriar o duplicador em 2 s.
                     self._drop_camera()
-                    self._gpu_disabled = True
+                    self._gpu_retry_at = time.monotonic() + 2.0
                     self.backend = "gdi"
+                    if not self._gpu_error_logged:
+                        log(
+                            "captura DXGI interrompida "
+                            f"({exc!r}); usando GDI e tentando de novo"
+                        )
+                        self._gpu_error_logged = True
                     arr = None
                 else:
+                    if self._gpu_error_logged:
+                        log("captura DXGI recuperada")
+                        self._gpu_error_logged = False
                     is_bgr = True
                     if arr is None:
                         # nada mudou na tela: reaproveita o ultimo JPEG
@@ -369,14 +407,49 @@ class Grabber:
                             return self._cache, False
 
         if arr is None:
-            arr = np.asarray(self._open_mss().grab(mon))
+            try:
+                arr = np.asarray(self._open_mss().grab(mon))
+            except Exception as exc:  # noqa: BLE001
+                # Durante UAC/bloqueio o GDI tambem pode falhar. Nao derruba a
+                # conexao: o monitor avisa o app e o video volta sozinho.
+                if not self._gdi_error_logged:
+                    log(f"captura GDI falhou ({exc!r}); mantendo a conexao")
+                    self._gdi_error_logged = True
+                return None, False
+            if self._gdi_error_logged:
+                log("captura GDI recuperada")
+                self._gdi_error_logged = False
             is_bgr = False
+
+        if self._is_black(arr):
+            if self._black_since <= 0.0:
+                self._black_since = time.monotonic()
+        else:
+            self._black_since = 0.0
 
         jpeg = self._encode(arr, is_bgr, width, quality)
         self._cache = jpeg
         self._cache_kw = (width, quality)
         self.last_grab_ms = (time.perf_counter() - t0) * 1000.0
         return jpeg, True
+
+    @staticmethod
+    def _is_black(arr: np.ndarray) -> bool:
+        """Quadro 100% preto? (ignora o canal alfa do mss, que vem em 255)"""
+        try:
+            pixels = arr[:, :, :3] if arr.ndim == 3 else arr
+            return bool(pixels.size) and int(pixels.max()) <= 2
+        except Exception:  # noqa: BLE001
+            return False
+
+    def black_for(self) -> float:
+        """Ha quantos segundos a captura esta 100% preta (0 = nao esta)."""
+        if self._black_since <= 0.0:
+            return 0.0
+        # Sem capturas recentes o dado e' velho: nao acusa tela preta a toa.
+        if time.monotonic() - self._last_capture_at > 2.0:
+            return 0.0
+        return time.monotonic() - self._black_since
 
     def _encode(self, arr: np.ndarray, is_bgr: bool, width: int, quality: int) -> bytes:
         h, w = arr.shape[:2]
@@ -406,6 +479,68 @@ class Grabber:
         return out.getvalue()
 
 
+class ProtectionMonitor:
+    """Detecta tela protegida (UAC/bloqueio/login) e janela elevada.
+
+    Roda em uma thread propria a cada 0.5 s para nao competir com a captura.
+    O callback recebe "secure_desktop", "admin_window" ou None e so e' chamado
+    quando o estado muda, depois de 3 verificacoes iguais (histerese).
+    """
+
+    def __init__(self, grabber: Grabber, on_change, interval: float = 0.5) -> None:
+        self._grabber = grabber
+        self._on_change = on_change
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._candidate: str | None = None
+        self._hits = 0
+        self._state: str | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="lc-guard", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+    def _sample(self) -> str | None:
+        try:
+            estado = wininput.input_desktop_state()
+        except Exception:  # noqa: BLE001
+            estado = None
+        if estado is True:
+            return "secure_desktop"
+        # Reserva: quadros 100% pretos por mais de 1 s. A area segura do Windows
+        # costuma devolver preto tanto no DXGI quanto no GDI.
+        if self._grabber.black_for() >= 1.0:
+            return "secure_desktop"
+        try:
+            if wininput.foreground_is_elevated():
+                return "admin_window"
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            kind = self._sample()
+            if kind == self._candidate:
+                self._hits += 1
+            else:
+                self._candidate = kind
+                self._hits = 1
+            # 3 verificacoes iguais (~1,5 s) evitam piscar o aviso.
+            if self._hits >= 3 and kind != self._state:
+                self._state = kind
+                try:
+                    self._on_change(kind)
+                except Exception:  # noqa: BLE001
+                    pass
+
+
 # ------------------------------------------------------------------ conexao
 
 class Conn:
@@ -432,8 +567,8 @@ class Conn:
         except (AttributeError, RuntimeError):
             return 0
 
-    async def send_json(self, mtype: int, obj: dict) -> None:
-        await self.send(mtype, json.dumps(obj, separators=(",", ":")).encode())
+    async def send_json(self, mtype: int, obj: dict, *, drain: bool = True) -> None:
+        await self.send(mtype, json.dumps(obj, separators=(",", ":")).encode(), drain=drain)
 
     def close(self) -> None:
         try:
@@ -497,6 +632,10 @@ class Server:
         self._discovery_transport = None
         self._sessions: dict[int, tuple[str, str, float]] = {}
         self._session_seq = 0
+        # Aviso de tela protegida/janela elevada: enviado uma vez quando muda.
+        self._warning: str | None = None
+        self._warning_seq = 0
+        self._guard: ProtectionMonitor | None = None
 
     # -------------------------------------------------------------- aviso no PC
 
@@ -528,6 +667,19 @@ class Server:
     def _session_ended(self, key: int) -> None:
         self._sessions.pop(key, None)
         self._activity_changed()
+
+    def _set_warning(self, kind: str | None) -> None:
+        """Muda o aviso global; cada stream envia o novo estado uma vez."""
+        if kind == self._warning:
+            return
+        self._warning = kind
+        self._warning_seq += 1
+        if kind == "secure_desktop":
+            log("tela protegida pelo Windows (UAC/bloqueio/login); avisando o app")
+        elif kind == "admin_window":
+            log("janela de administrador em primeiro plano; entrada pode ser ignorada")
+        else:
+            log("tela normalizada; video e controle remoto de volta")
 
     # -------------------------------------------------------------- pareamento
 
@@ -666,9 +818,31 @@ class Server:
         frames = 0
         mark = time.perf_counter()
         congested = False
+        warning_seq = -1
+        warning_sent = False
 
         while True:
             t0 = time.perf_counter()
+
+            # Aviso de tela protegida/janela elevada: so quando o estado muda.
+            # Vai antes do controle de fluxo para nao ficar preso atras do video.
+            if self._warning_seq != warning_seq:
+                warning_seq = self._warning_seq
+                warn = self._warning
+                if warn is not None:
+                    await conn.send_json(
+                        MSG_INFO,
+                        {"warn": warn, "on": True},
+                        drain=conn.backlog() < FLOW_LOW_BYTES,
+                    )
+                    warning_sent = True
+                elif warning_sent:
+                    await conn.send_json(
+                        MSG_INFO,
+                        {"warn": "", "on": False},
+                        drain=conn.backlog() < FLOW_LOW_BYTES,
+                    )
+                    warning_sent = False
 
             # Cliente lento: pular o frame e' melhor que enfileira-lo. Capturar e
             # codificar adiantaria um quadro que so chegaria ainda mais atrasado.
@@ -1020,6 +1194,11 @@ class Server:
         self.loop = asyncio.get_running_loop()
         self._stop_event = asyncio.Event()
 
+        # Detecta UAC/bloqueio/login e janelas elevadas desde o inicio, para que
+        # um app que conecte no meio do aviso ja receba o estado atual.
+        self._guard = ProtectionMonitor(self.grabber, self._set_warning)
+        self._guard.start()
+
         extra = {}
         if ssl_ctx is not None:
             extra = {"ssl": ssl_ctx, "ssl_handshake_timeout": HELLO_TIMEOUT}
@@ -1062,6 +1241,9 @@ class Server:
                     self.tray.stop()
                 except Exception:  # noqa: BLE001
                     pass
+            if self._guard is not None:
+                self._guard.stop()
+                self._guard = None
             _set_console_title(0, "")
 
 

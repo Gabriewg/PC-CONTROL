@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """
 Cliente de teste: valida o servidor sem precisar do celular.
 
@@ -228,9 +229,13 @@ def main() -> int:
         elif mtype == MSG_SCREEN:
             print("tela:", json.loads(payload))
         elif mtype == MSG_INFO:
-            print("servidor:", json.loads(payload))
-            recusado = True
-            break
+            info = json.loads(payload)
+            if info.get("error"):
+                print("servidor:", info)
+                recusado = True
+                break
+            if "warn" in info:
+                print("aviso:", info)
         elif mtype == MSG_VIDEO:
             total += 1
             last = payload[4:]

@@ -104,4 +104,6 @@ propriedade de segurança a mudança preserva.
 ## Licença
 
 Ao contribuir, você concorda que sua contribuição será distribuída sob a
-licença [MIT](LICENSE) do projeto.
+licença [GNU Affero General Public License v3.0 ou posterior](LICENSE)
+(`AGPL-3.0-or-later`) do projeto. Mantenha o cabeçalho
+`SPDX-License-Identifier: AGPL-3.0-or-later` nos arquivos `.py` e `.kt`.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Gera os mipmaps do icone do app a partir de icon.jpg.
 
 Rode de qualquer lugar:

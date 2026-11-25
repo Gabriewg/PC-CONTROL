@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 package com.localcontrol
 
 import android.Manifest
@@ -56,6 +57,7 @@ class MainActivity : Activity(), RemoteView.Listener {
     private lateinit var bottomBar: View
     private lateinit var showBtn: TextView
     private lateinit var statusText: TextView
+    private lateinit var warningBanner: TextView
     private lateinit var monitorBtn: TextView
     private lateinit var closeBtn: TextView
     private lateinit var modeBtn: TextView
@@ -164,6 +166,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         bottomBar = findViewById(R.id.bottomBar)
         showBtn = findViewById(R.id.showBtn)
         statusText = findViewById(R.id.statusText)
+        warningBanner = findViewById(R.id.warningBanner)
         monitorBtn = findViewById(R.id.monitorBtn)
         closeBtn = findViewById(R.id.closeBtn)
         modeBtn = findViewById(R.id.modeBtn)
@@ -638,6 +641,11 @@ class MainActivity : Activity(), RemoteView.Listener {
                 updateStatus()
             }
 
+            override fun onWarning(kind: String, on: Boolean) {
+                if (client !== c) return
+                showWarning(kind, on)
+            }
+
             override fun onError(message: String) {
                 if (client !== c) return
                 handleFailure(message)
@@ -688,6 +696,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         closeKeyboard()
         keysPanel.visibility = View.GONE
         keysBtn.setBackgroundResource(R.drawable.bg_btn)
+        warningBanner.visibility = View.GONE
     }
 
     private fun handleFailure(message: String) {
@@ -773,6 +782,24 @@ class MainActivity : Activity(), RemoteView.Listener {
         parts.add("$fpsNow fps")
         parts.add("$latencyMs ms")
         statusText.text = parts.joinToString("  •  ")
+    }
+
+    /** Banner sobre o video: avisa sem bloquear gestos nem derrubar a sessao. */
+    private fun showWarning(kind: String, on: Boolean) {
+        if (!on) {
+            warningBanner.visibility = View.GONE
+            return
+        }
+        val texto = when (kind) {
+            "secure_desktop" ->
+                "Tela protegida pelo Windows (UAC, bloqueio ou login). " +
+                    "O controle remoto não funciona aqui. Volte ao PC ou aguarde."
+            "admin_window" ->
+                "Janela de administrador: o Windows está ignorando seus cliques e teclas."
+            else -> return
+        }
+        warningBanner.text = texto
+        warningBanner.visibility = View.VISIBLE
     }
 
     // ------------------------------------------------------------ descoberta

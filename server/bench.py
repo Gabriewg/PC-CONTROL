@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Micro-benchmark do pipeline de captura/encode (para calibrar fps e qualidade)."""
 
 from __future__ import annotations

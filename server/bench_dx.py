@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Benchmark da captura via Desktop Duplication (dxcam) com a tela em movimento."""
 
 from __future__ import annotations

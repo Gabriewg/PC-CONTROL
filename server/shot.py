@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Salva um print da tela do PC (diagnostico)."""
 
 from __future__ import annotations

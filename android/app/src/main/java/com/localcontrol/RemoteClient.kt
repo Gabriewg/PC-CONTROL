@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 package com.localcontrol
 
 import android.graphics.Bitmap
@@ -65,6 +66,12 @@ class RemoteClient(
 
         /** A chave do PC mudou (possivel MITM). Nao conecte sem acao do usuario. */
         fun onFingerprintMismatch(expected: String, actual: String) {}
+
+        /**
+         * Aviso nao fatal do servidor: "secure_desktop" (UAC/bloqueio/login) ou
+         * "admin_window" (janela elevada). Servidores antigos nao mandam isso.
+         */
+        fun onWarning(kind: String, on: Boolean) {}
     }
 
     var listener: Listener? = null
@@ -221,6 +228,13 @@ class RemoteClient(
 
                     TYPE_INFO -> {
                         val info = JSONObject(String(payload, Charsets.UTF_8))
+                        // Aviso nao fatal: nao interrompe a conexao e e' ignorado
+                        // por versoes antigas do app (que so olham "error").
+                        if (info.has("warn")) {
+                            val warn = info.optString("warn", "")
+                            val on = info.optBoolean("on", false)
+                            post { listener?.onWarning(warn, on) }
+                        }
                         val err = info.optString("error", "")
                         if (err.isNotEmpty()) {
                             post { listener?.onError(err) }

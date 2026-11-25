@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Teste de integracao do pareamento por QR (token de uso unico + aparelho).
 
 Roda um servidor de verdade (TLS 1.3) em uma porta local e um cliente que faz o

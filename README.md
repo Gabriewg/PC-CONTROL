@@ -36,6 +36,8 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
   HMAC-SHA256 e o servidor guarda apenas a chave derivada (PBKDF2).
 - **Aviso de conexão ativa no PC**: ícone de bandeja verde/vermelho, notificação
   e log `>>> CONEXAO ATIVA` quando alguém conecta.
+- **Aviso de tela protegida**: detecta UAC, bloqueio, login e janelas elevadas e
+  mostra um banner no app, sem derrubar a conexão.
 - **Limite de tentativas** por IP e global, com atraso progressivo e bloqueio
   persistente entre reinícios.
 - Controle de fluxo: em rede ruim o servidor **descarta quadros** em vez de
@@ -109,7 +111,7 @@ O `--set-pin` pede o PIN duas vezes (não fica no histórico do shell). O servid
 mostra a versão, os IPs e a impressão digital da chave pública:
 
 ```
-[2026-01-01 12:00:00] versao 1.4
+[2026-01-01 12:00:00] versao 1.5
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -385,10 +387,17 @@ Toda mensagem nos dois sentidos:
 | `0x03` CURSOR | servidor → app | `[2 bytes cursorX][2 bytes cursorY]` (só o cursor) |
 | `0x10` HELLO | app → servidor | JSON `{v:3, name, width, quality, fps, mac}` + `pid` (QR) ou `device` (aparelho) |
 | `0x11` INPUT | app → servidor | JSON do evento |
-| `0x12` INFO | servidor → app | JSON `{error}` |
+| `0x12` INFO | servidor → app | JSON `{warn?, on?, error?}` (aviso não fatal ou erro fatal) |
 | `0x13/0x14` PING/PONG | ambos | JSON `{ts}` (latência) |
 | `0x15` CHALLENGE | servidor → app | JSON `{v, kdf, iter, salt, nonce, auth}` |
 | `0x16` PAIR_OK | servidor → app | JSON `{v, id, key, name}` (credencial do aparelho, só no pareamento) |
+
+O `INFO` com `{"warn":"secure_desktop","on":true}` (UAC/bloqueio/login) ou
+`{"warn":"admin_window","on":true}` (janela elevada) é **não fatal**: o app
+mostra um banner, mantém os gestos e a conexão, e esconde o banner quando chega
+`{"warn":"","on":false}`. O aviso só é enviado quando o estado muda; servidores
+antigos não mandam esse campo e apps antigos o ignoram. O campo `error`
+continua sendo fatal, como antes.
 
 ### Handshake (PIN por desafio-resposta e credencial)
 
@@ -491,6 +500,10 @@ com token de uso único** por padrão:
   explícita do usuário. Não existe "continuar mesmo assim".
 - **Aviso de conexão ativa.** A bandeja fica vermelha, mostra notificação e o
   log registra `>>> CONEXAO ATIVA` com nome do aparelho e IP.
+- **Avisos de tela protegida são informativos.** O servidor detecta UAC,
+  bloqueio, login e janelas elevadas, mas **não** contorna o isolamento do
+  Windows. O banner não altera autenticação, TLS nem permissões: ele só evita
+  que o usuário remoto pense que a conexão caiu.
 - **Força bruta limitada.** Atraso progressivo (1 s, 2 s, 4 s…), bloqueio por IP
   e global (útil no Tailscale, onde cada aparelho tem um IP), persistente entre
   reinícios, e log de cada falha com data/IP.
@@ -524,7 +537,7 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 | App não conecta por Wi-Fi | Firewall bloqueando (rode `liberar-firewall.ps1`); redes diferentes; IP errado |
 | "Falha: conexão recusada" | O servidor não está rodando ou o firewall bloqueia. Veja `server/server.log` |
 | App não conecta por USB | `adb devices` não mostra o aparelho → depuração USB/autorização; rode `conectar-usb.bat` de novo |
-| Tela preta no app | Servidor sem monitor válido: teste `--monitor 1` e veja o log |
+| Tela preta no app | Servidor sem monitor válido: teste `--monitor 1` e veja o log. Se aconteceu ao abrir UAC, bloqueio, login ou um programa elevado, veja [Limitações conhecidas](#limitações-conhecidas) |
 | Cursor fora do lugar | Escala do Windows (DPI): o servidor já ativa DPI-awareness; reinicie-o |
 | Muito lag | Use qualidade menor (`Q:` no app) ou USB; 30 fps a 1280 px é o ponto doce |
 | Contador baixo com a tela parada | Normal com DXGI: só envia quando algo muda (keepalive de 1 s). O cursor continua fluido pelo pacote `0x03` |
@@ -543,6 +556,41 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 | "TLS 1.3 exige Android 10+" | Aparelho antigo. O TLS 1.3 do app precisa de Android 10 (API 29) ou mais novo |
 | "o PC nao aceitou TLS 1.3" | O servidor está com `--no-tls` ou é uma versão antiga. Rode o `server.py` atualizado, sem `--no-tls` |
 
+## Limitações conhecidas
+
+O servidor roda como um programa comum na sessão do usuário. Por segurança, o
+Windows isola certas telas e janelas, e um processo sem privilégios não consegue
+capturá-las nem controlá-las:
+
+- **UAC, tela de bloqueio, tela de login e Ctrl+Alt+Del.** Essas telas rodam na
+  "área de trabalho segura" (`Winlogon`). A imagem fica preta ou congelada e o
+  app mostra o aviso *"Tela protegida pelo Windows (UAC, bloqueio ou login)…"*.
+  O aviso some sozinho quando você volta para a área de trabalho normal.
+- **Programas executados como administrador.** A imagem aparece, mas o Windows
+  ignora cliques e teclas enviados por um processo não elevado (UIPI). O app
+  mostra *"Janela de administrador: o Windows está ignorando seus cliques e
+  teclas."* Para controlar essa janela, o servidor também precisaria estar
+  elevado — e isso aumenta bastante o risco.
+- **Ctrl+Alt+Del** não pode ser enviado por software. Use o teclado físico do PC
+  ou o botão de segurança do Windows.
+- **Tela toda preta por outros motivos** (proteção de conteúdo/DRM, monitor
+  desligado ou driver de vídeo) também pode acionar o aviso. Ele é apenas um
+  aviso: a conexão continua e o vídeo volta quando a tela volta ao normal.
+
+Dicas para quem vai ficar fora de casa:
+
+- deixe o PC **ligado, desbloqueado e sem dormir**. Isso reduz a segurança
+  física: quem estiver perto do PC tem acesso à sessão;
+- evite abrir remotamente instaladores e programas que peçam UAC;
+- se precisar controlar um programa elevado, abra-o antes de sair ou use o
+  teclado e o mouse físicos;
+- o aviso é uma limitação conhecida do Windows, **não um bug** do Local Control.
+
+A solução completa (veja o Roadmap) é um serviço do Windows rodando como
+`SYSTEM`, que troca de área de trabalho para enxergar UAC/login e injeta entrada
+nas janelas elevadas. É a mesma abordagem usada por outros apps de acesso
+remoto.
+
 ## 9. Roadmap
 
 - [ ] Vídeo com H.264/MediaCodec (menos banda, mais FPS)
@@ -554,6 +602,11 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 - [x] Pareamento por QR Code com token de uso único e credencial por aparelho
 - [ ] Servidor empacotado como `.exe` (PyInstaller), sem precisar de Python
 - [ ] Conexão sem digitar IP (fallback entre últimos endereços, MagicDNS e LAN)
+- [ ] Serviço do Windows (`SYSTEM`) com troca de área de trabalho para enxergar
+      UAC/tela de login e permitir entrada em programas elevados. É a mesma
+      abordagem de outros apps de acesso remoto; a implementação deve seguir a
+      documentação da Microsoft (`WTSGetActiveConsoleSessionId`,
+      `CreateProcessAsUser`, `OpenInputDesktop` e `SetThreadDesktop`).
 
 ### TLS, PIN e pareamento (implementado)
 
@@ -615,7 +668,12 @@ saber como abrir issues, propor mudanças e enviar pull requests.
 
 ## Licença
 
-Distribuído sob a licença **MIT** — veja [LICENSE](LICENSE).
+Distribuído sob a **GNU Affero General Public License v3.0 ou posterior**
+(`AGPL-3.0-or-later`) — veja [LICENSE](LICENSE).
+
+A AGPL exige que quem oferece o Local Control como serviço pela rede também
+disponibilize o código-fonte correspondente. Os arquivos `.py` e `.kt` trazem o
+cabeçalho `SPDX-License-Identifier: AGPL-3.0-or-later`.
 
 O ícone do app é gerado a partir de `icon.jpg`; se você redistribuir o projeto
 com outra identidade visual, troque essa imagem pelos seus próprios assets.
