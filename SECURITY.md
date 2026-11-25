@@ -123,6 +123,12 @@ dado no aviso de segurança, se você quiser.
 | `pair.png` | QR de pareamento | ignorado pelo Git; apague após usar |
 | `server.log` | log rotativo | ignorado pelo Git |
 
+Esses arquivos **não fazem parte do `PocketDesk.exe`**: o executável é publicado
+sem PIN, sem chave privada e sem aparelhos. Eles são criados na primeira execução
+em `%LOCALAPPDATA%\PocketDesk` (ou em `server/` quando o servidor roda pelo
+Python). Cada release publica também `PocketDesk.exe.sha256`; confira com
+`Get-FileHash .\PocketDesk.exe -Algorithm SHA256` antes de abrir.
+
 ## O que o projeto NÃO protege
 
 Seja explícito sobre os limites:

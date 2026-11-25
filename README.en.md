@@ -27,6 +27,32 @@ between the devices.
         └──────── UDP 8766 (discovery) ───────┘
 ```
 
+## Windows app (PocketDesk.exe)
+
+The recommended way to run it on the PC is the **PocketDesk.exe** desktop app: a
+single dark window (black + wine) with the server switch, pairing QR, PIN, paired
+devices and live sessions — no `.bat` files and no console.
+
+1. Download `PocketDesk.exe` from
+   [Releases](https://github.com/Gabriewg/PocketDesk/releases).
+2. Verify the SHA-256 (the release also ships `PocketDesk.exe.sha256`):
+
+   ```powershell
+   Get-FileHash .\PocketDesk.exe -Algorithm SHA256
+   ```
+
+3. Double-click it. On first run the window asks for a PIN and creates the TLS
+   certificate; the server starts enabled.
+
+Closing the window minimizes it to the tray; use **Sair (Quit)** in the tray menu
+or the window footer to stop the server.
+
+### Where the data lives
+
+The executable bundles **no secrets**. PIN, certificate, devices and logs are
+created in `%LOCALAPPDATA%\PocketDesk` on first run. Set `POCKETDESK_DATA_DIR`
+to use another folder (portable mode or tests).
+
 ## What this project demonstrates
 
 This is a self-contained, end-to-end systems project: two codebases, a custom
@@ -45,6 +71,8 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 ## Features
 
+- **Desktop app (`PocketDesk.exe`)**: server switch, pairing QR, PIN, paired
+  devices and live sessions in one dark window.
 - JPEG screen streaming with quality, resolution and FPS adjustable in real time.
 - **DXGI Desktop Duplication** capture (GPU, ~8 ms/frame) with automatic fallback
   to **GDI** (`mss`, ~33 ms).
@@ -96,16 +124,21 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 ```
 .
 ├── server/                     # Python server (Windows)
+│   ├── app.py                  # desktop window (PocketDesk.exe)
+│   ├── desktop/                # theme, widgets, host, tray and dialogs
 │   ├── server.py               # TCP/TLS, capture, protocol, discovery, pairing
 │   ├── security.py             # PIN (PBKDF2), HMAC challenge, tokens, devices, TLS
-│   ├── tray.py                 # system tray icon and active-connection warning
+│   ├── tray.py                 # console-mode system tray icon
 │   ├── wininput.py             # mouse/keyboard injection via SendInput
-│   ├── iniciar.bat             # creates the venv, installs deps, runs the server
-│   ├── definir-pin.bat         # sets/changes the PIN (prompts in the terminal)
+│   ├── iniciar.bat             # opens the window (--console for the old mode)
+│   ├── definir-pin.bat         # sets/changes the PIN in the terminal (console mode)
 │   ├── autostart.bat           # background execution (used by the .vbs)
-│   ├── iniciar-oculto.vbs      # starts the server without a console window
-│   ├── instalar-autostart.bat  # shortcut in the Windows Startup folder
+│   ├── iniciar-oculto.vbs      # starts the server without a window (legacy)
+│   ├── instalar-autostart.bat  # shortcut in the Windows Startup folder (legacy)
 │   ├── liberar-firewall.ps1    # opens ports 8765/TCP and 8766/UDP
+│   ├── build-exe.bat           # builds dist/PocketDesk.exe + SHA-256
+│   ├── PocketDesk.spec         # PyInstaller recipe
+│   ├── gerar_icone_exe.py      # builds .ico and brand.png from icon.jpg
 │   ├── test_client.py          # headless test client (no phone needed)
 │   ├── test_pair.py            # QR pairing and device-credential tests
 │   ├── bench*.py               # capture/encoding benchmarks
@@ -124,7 +157,8 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── instalar-apk.bat        # installs on the phone via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (pinned version)
 ├── .github/dependabot.yml      # automated pip and Gradle updates
-├── icon.jpg                     # source image for the app icon
+├── .github/workflows/build-exe.yml # builds PocketDesk.exe and the SHA-256
+├── icon.jpg                    # source image for the app icon
 ├── conectar-usb.bat            # sets up the USB tunnel (adb reverse)
 ├── SECURITY.md                 # threat model and reporting channel
 ├── CONTRIBUTING.md
@@ -135,7 +169,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 | Part | Requirements |
 |---|---|
-| Server | Windows 10/11, Python 3.10+ (`cryptography` is installed by `iniciar.bat`) |
+| Server | Windows 10/11. `PocketDesk.exe` bundles everything; to run from Python, 3.10+ (dependencies are installed by `iniciar.bat`) |
 | App | **Android 10+** (API 29) for TLS 1.3; the APK installs on 7.0+, but TLS connections require 10+ |
 | Building the app | JDK 17 and Android SDK (API 34); Gradle 8.7 is downloaded by the wrapper |
 
@@ -143,22 +177,28 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 ### 1. Run the server on the PC
 
-On first run, double-click **`server/iniciar.bat`**: it creates the venv, installs
-the dependencies, asks you to set a PIN and starts the server. Or do it manually:
+The recommended path is **`PocketDesk.exe`** (see
+[Windows app](#windows-app-pocketdeskexe)): the window starts the server, shows
+the QR, creates the PIN on first run and warns you when someone connects.
+
+For development, double-click **`server/iniciar.bat`** (opens the same window) or
+use `iniciar.bat --console` for the old terminal mode. Manually:
 
 ```powershell
 cd server
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe server.py --set-pin
-.venv\Scripts\python.exe server.py
+.venv\Scripts\pythonw.exe app.py                # desktop window
+.venv\Scripts\python.exe server.py --set-pin    # PIN in the terminal (console mode)
+.venv\Scripts\python.exe server.py              # console server
 ```
 
-`--set-pin` asks for the PIN twice (it never goes into shell history). The server
-prints its version, IP addresses, the public-key fingerprint and the pairing QR:
+In console mode `--set-pin` asks for the PIN twice (it never goes into shell
+history). The server prints its version, IP addresses, the public-key
+fingerprint and the pairing QR:
 
 ```
-[2026-01-01 12:00:00] versao 1.5
+[2026-01-01 12:00:00] versao 1.6
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -171,6 +211,10 @@ If you renew the certificate while keeping `key.pem`, the app does not need to
 re-pair.
 
 #### Options
+
+The desktop window accepts `--port`, `--discovery-port` and `--no-gpu`; everything
+else (PIN, devices, QR, autostart) is done in the window. `server.py` keeps the
+console options:
 
 | Option | Default | Description |
 |---|---|---|
@@ -193,6 +237,9 @@ re-pair.
 
 #### Local files (all git-ignored)
 
+With `PocketDesk.exe` these files live in `%LOCALAPPDATA%\PocketDesk`; when run
+from Python they stay in `server/`:
+
 | File | Contents |
 |---|---|
 | `pin.txt` | salt + derived PIN key (PBKDF2-HMAC-SHA256, 210k iterations). **Does not contain the PIN.** |
@@ -200,7 +247,7 @@ re-pair.
 | `key.pem` | private key (permissions restricted to your account) |
 | `auth_state.json` | PIN attempts/blocks (persist across restarts) |
 | `devices.json` | paired-device credentials (ID + 32-byte key) |
-| `pair.png` | last generated pairing QR (delete it after use) |
+| `pair.png` | last pairing QR from console mode (delete it after use) |
 | `server.log` | rotating log with date/time and IP of every failure |
 
 PIN policy: **with TLS** (default) the minimum is 4 characters; **without TLS**

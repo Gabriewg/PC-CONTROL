@@ -20,7 +20,47 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
         └──────── UDP 8766 (descoberta) ──────┘
 ```
 
+## Windows: o app (PocketDesk.exe)
+
+O jeito recomendado de usar no PC é o **PocketDesk.exe**: uma janela única, no
+estilo RustDesk/AnyDesk, com tudo em um lugar só — ligar o servidor, QR de
+pareamento, PIN, aparelhos e sessões. Nada de abrir `.bat` nem console.
+
+1. Baixe `PocketDesk.exe` na página de
+   [Releases](https://github.com/Gabriewg/PocketDesk/releases).
+2. Confira o SHA-256 (o arquivo `PocketDesk.exe.sha256` vai junto):
+
+   ```powershell
+   Get-FileHash .\PocketDesk.exe -Algorithm SHA256
+   ```
+
+   O hash precisa ser igual ao publicado na release.
+3. Dê duplo clique. Na primeira execução a própria janela pede o PIN e cria o
+   certificado TLS; o servidor já sobe ligado.
+
+Fechar (X) minimiza para a bandeja, como no AnyDesk. Para encerrar de verdade,
+use **Sair** no menu da bandeja ou no rodapé da janela.
+
+### Onde ficam os dados
+
+O executável **não carrega nenhum segredo**. PIN, certificado, aparelhos e log
+são criados em `%LOCALAPPDATA%\PocketDesk` na primeira execução:
+
+| Arquivo | Para que serve |
+|---|---|
+| `pin.txt` | chave derivada do PIN (PBKDF2; o PIN em si nunca é gravado) |
+| `cert.pem` / `key.pem` | certificado ECDSA P-256 e chave privada do TLS |
+| `devices.json` | credencial exclusiva de cada aparelho pareado |
+| `auth_state.json` | bloqueios do limite de tentativas |
+| `server.log` | log rotativo |
+
+Para usar outra pasta (modo portátil ou testes), defina
+`POCKETDESK_DATA_DIR` antes de abrir o programa.
+
 ## Recursos
+
+- **Janela desktop (`PocketDesk.exe`)**: servidor, QR, PIN, aparelhos e sessões
+  em uma tela só, com tema preto e vinho.
 
 - Vídeo da tela em JPEG com qualidade, resolução e FPS ajustáveis em tempo real.
 - Captura por **DXGI Desktop Duplication** (GPU, ~8 ms/quadro) com fallback
@@ -52,16 +92,21 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 ```
 .
 ├── server/                     # servidor Python (Windows)
+│   ├── app.py                  # janela desktop (PocketDesk.exe)
+│   ├── desktop/                # tema, widgets, host, bandeja e diálogos
 │   ├── server.py               # TCP/TLS, captura, protocolo, descoberta e pareamento
 │   ├── security.py             # PIN (PBKDF2), desafio HMAC, tokens, aparelhos e TLS
-│   ├── tray.py                 # ícone de bandeja e aviso de conexão ativa
+│   ├── tray.py                 # ícone de bandeja do modo console
 │   ├── wininput.py             # injeção de mouse/teclado via SendInput
-│   ├── iniciar.bat             # cria a venv, instala deps e roda o servidor
-│   ├── definir-pin.bat         # define/troca o PIN (pede no terminal)
+│   ├── iniciar.bat             # abre a janela (--console para o modo antigo)
+│   ├── definir-pin.bat         # define/troca o PIN no terminal (modo console)
 │   ├── autostart.bat           # execução em segundo plano (usado pelo .vbs)
-│   ├── iniciar-oculto.vbs      # sobe o servidor sem janela de console
-│   ├── instalar-autostart.bat  # atalho na pasta Inicializar do Windows
+│   ├── iniciar-oculto.vbs      # sobe o servidor sem janela (legado)
+│   ├── instalar-autostart.bat  # atalho na pasta Inicializar (legado)
 │   ├── liberar-firewall.ps1    # libera as portas 8765/TCP e 8766/UDP
+│   ├── build-exe.bat           # gera dist/PocketDesk.exe + SHA-256
+│   ├── PocketDesk.spec         # receita do PyInstaller
+│   ├── gerar_icone_exe.py      # gera .ico e brand.png a partir do icon.jpg
 │   ├── test_client.py          # cliente de teste (sem celular)
 │   ├── test_pair.py            # testes do pareamento por QR e da credencial
 │   ├── bench*.py               # benchmarks de captura/codificação
@@ -80,7 +125,8 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 │   ├── instalar-apk.bat        # instala no celular via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
 ├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
-├── icon.jpg                     # imagem de origem do ícone do app
+├── .github/workflows/build-exe.yml  # gera o PocketDesk.exe e o SHA-256
+├── icon.jpg                    # imagem de origem do ícone do app
 ├── conectar-usb.bat            # configura o túnel USB (adb reverse)
 ├── SECURITY.md                 # modelo de ameaça e canal de reporte
 ├── CONTRIBUTING.md
@@ -91,29 +137,35 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 
 | Parte | Requisitos |
 |---|---|
-| Servidor | Windows 10/11, Python 3.10+ (a biblioteca `cryptography` é instalada pelo `iniciar.bat`) |
+| Servidor | Windows 10/11. O `PocketDesk.exe` já traz tudo; para rodar pelo Python, 3.10+ (as dependências são instaladas pelo `iniciar.bat`) |
 | App | **Android 10+** (API 29) para o TLS 1.3; o APK instala no 7.0+, mas conexões TLS exigem o 10+ |
 | Compilar o app | JDK 17 e Android SDK (API 34); o Gradle 8.7 é baixado pelo wrapper |
 
 ## 1. Rodar o servidor no PC
 
-Na primeira vez, dê duplo clique em **`server/iniciar.bat`**: ele cria a venv,
-instala as dependências, pede para definir o PIN e inicia o servidor. Ou faça
-manualmente:
+O caminho recomendado é o **`PocketDesk.exe`** (veja
+[Windows: o app](#windows-o-app-pocketdeskexe)): a janela liga o servidor,
+mostra o QR, cria o PIN no primeiro uso e avisa quando alguém conecta.
+
+Para desenvolver ou rodar pelo Python, dê duplo clique em
+**`server/iniciar.bat`** (abre a mesma janela) ou use `iniciar.bat --console`
+para o modo antigo, com terminal. Manualmente:
 
 ```powershell
 cd server
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe server.py --set-pin
-.venv\Scripts\python.exe server.py
+.venv\Scripts\pythonw.exe app.py                # janela
+.venv\Scripts\python.exe server.py --set-pin    # PIN no terminal (modo console)
+.venv\Scripts\python.exe server.py              # servidor no console
 ```
 
-O `--set-pin` pede o PIN duas vezes (não fica no histórico do shell). O servidor
-mostra a versão, os IPs e a impressão digital da chave pública:
+No modo console, o `--set-pin` pede o PIN duas vezes (não fica no histórico do
+shell). O servidor mostra a versão, os IPs e a impressão digital da chave
+pública:
 
 ```
-[2026-01-01 12:00:00] versao 1.5
+[2026-01-01 12:00:00] versao 1.6
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -121,12 +173,16 @@ mostra a versão, os IPs e a impressão digital da chave pública:
 [2026-01-01 12:00:00] pronto. Abra o app no celular e conecte.
 ```
 
-Na primeira tela também aparece o **QR de pareamento** (veja
+No modo console também aparece o **QR de pareamento** (veja
 [Pareamento por QR](#pareamento-por-qr-recomendado)). A impressão digital é da **chave
 pública (SPKI)**, não do certificado inteiro. Se você renovar o certificado
 mantendo o `key.pem`, o app não precisa re-parear.
 
 ### Opções
+
+A janela aceita `--port`, `--discovery-port` e `--no-gpu`; todo o resto (PIN,
+aparelhos, QR, autostart) é feito na própria tela. O `server.py` continua com as
+opções de console:
 
 | Opção | Padrão | Descrição |
 |---|---|---|
@@ -156,7 +212,8 @@ python server.py --no-gpu
 ### PIN e arquivos locais
 
 O PIN é uma configuração **local** e não deve ser passado por `--pin` (ficaria
-no histórico do shell). Use:
+no histórico do shell). Na janela, use o botão **Trocar** ao lado do PIN. No modo
+console:
 
 ```powershell
 server\definir-pin.bat
@@ -165,7 +222,8 @@ cd server
 .venv\Scripts\python.exe server.py --set-pin
 ```
 
-O que fica na pasta `server/` (tudo ignorado pelo Git):
+No `PocketDesk.exe`, os arquivos ficam em `%LOCALAPPDATA%\PocketDesk`; rodando
+pelo Python, em `server/` (tudo ignorado pelo Git):
 
 | Arquivo | Conteúdo |
 |---|---|
@@ -174,7 +232,7 @@ O que fica na pasta `server/` (tudo ignorado pelo Git):
 | `key.pem` | chave privada (permissões restritas à sua conta) |
 | `auth_state.json` | tentativas/bloqueios de PIN (persistem entre reinícios) |
 | `devices.json` | credenciais dos aparelhos pareados (ID + chave de 32 bytes) |
-| `pair.png` | último QR de pareamento gerado (apague depois de usar) |
+| `pair.png` | último QR gerado no modo console (apague depois de usar) |
 | `server.log` | log rotativo, com data/hora e IP de cada falha |
 
 Política do PIN:
@@ -184,14 +242,16 @@ Política do PIN:
 - **sem TLS** (`--no-tls`): mínimo de **8 caracteres**. O servidor recusa subir
   com um PIN curto nesse modo.
 
-Depois de trocar o PIN, reinicie o servidor. Aparelhos já pareados continuam
-conectando pela credencial própria; para uma conexão manual nova, use o mesmo
-PIN no app (o app pergunta a digital do PC só no primeiro pareamento).
+No modo console, reinicie o servidor depois de trocar o PIN. Na janela a troca
+vale na hora. Aparelhos já pareados continuam conectando pela credencial
+própria; para uma conexão manual nova, use o mesmo PIN no app (o app pergunta a
+digital do PC só no primeiro pareamento).
 
 ### Firewall
 
-Se o Windows perguntar, **permita o acesso em redes privadas**. Para liberar sem
-o popup (PowerShell como Administrador):
+Na janela, use o botão **Liberar firewall** no rodapé (o Windows pede
+confirmação de administrador uma vez). Se preferir o popup do Windows,
+**permita o acesso em redes privadas**. Ou, no PowerShell como Administrador:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File server/liberar-firewall.ps1
@@ -199,14 +259,13 @@ powershell -ExecutionPolicy Bypass -File server/liberar-firewall.ps1
 
 ### Iniciar junto com o Windows
 
-Rode **`server/instalar-autostart.bat`**: ele cria um atalho para
-`iniciar-oculto.vbs` na pasta Inicializar do usuário. O servidor sobe no login
-**sem janela de console**, grava o log em `server/server.log` (rotativo, até 4
-arquivos de 1 MB) e erros fatais em `server/server.err.log`.
+Na janela, ligue a chave **Iniciar com o Windows** no rodapé: ela cria (ou
+remove) um atalho na pasta Inicializar do usuário, sem pedir senha.
 
-O autostart **não precisa de administrador**, mas só funciona com a sessão
-aberta — a captura de tela depende da área de trabalho do usuário. Para remover,
-apague o atalho `LocalControl Servidor` da pasta Inicializar.
+O modo antigo continua disponível: **`server/instalar-autostart.bat`** cria um
+atalho para `iniciar-oculto.vbs`, que sobe só o servidor, sem janela. O
+autostart **não precisa de administrador**, mas só funciona com a sessão aberta
+— a captura de tela depende da área de trabalho do usuário.
 
 Se o servidor já estiver rodando, uma segunda instância apenas falha ao abrir a
 porta e sai. Para reiniciar, feche o processo `python.exe` antes.
