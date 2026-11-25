@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Autenticacao, limite de tentativas e TLS do servidor Local Control.
+"""Autenticacao, limite de tentativas e TLS do servidor PocketDesk.
 
 O PIN nunca trafega pela rede:
 
@@ -592,8 +592,8 @@ def ensure_certificate(cert_path: Path, key_path: Path, days: int = 1825) -> boo
     agora = datetime.now(timezone.utc)
     nome = x509.Name(
         [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Local Control"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "Local Control"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PocketDesk"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "PocketDesk"),
         ]
     )
 

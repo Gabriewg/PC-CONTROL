@@ -49,7 +49,7 @@ class Tray:
             pystray.MenuItem("Sair", self._on_quit),
         )
         self.icon = pystray.Icon(
-            "localcontrol", self._idle_image, "Local Control", menu
+            "localcontrol", self._idle_image, "PocketDesk", menu
         )
 
     # ------------------------------------------------------------ desenho
@@ -90,11 +90,11 @@ class Tray:
             try:
                 self.icon.icon = self._connected_image if count > 0 else self._idle_image
                 if count <= 0:
-                    self.icon.title = "Local Control - nenhuma conexao ativa"
+                    self.icon.title = "PocketDesk - nenhuma conexao ativa"
                 elif count == 1:
-                    self.icon.title = f"Local Control - conectado: {names}"
+                    self.icon.title = f"PocketDesk - conectado: {names}"
                 else:
-                    self.icon.title = f"Local Control - {count} conexoes ativas"
+                    self.icon.title = f"PocketDesk - {count} conexoes ativas"
             except Exception:  # noqa: BLE001
                 return
 
@@ -110,7 +110,7 @@ class Tray:
 
     def _notify(self, texto: str) -> None:
         try:
-            self.icon.notify(texto, "Local Control")
+            self.icon.notify(texto, "PocketDesk")
         except Exception:  # noqa: BLE001
             pass
 
@@ -122,7 +122,7 @@ class Tray:
     def _on_devices(self, _icon=None, _item=None) -> None:
         recs = self.server.devices.all()
         if not recs:
-            _message("Nenhum aparelho pareado.", "Local Control")
+            _message("Nenhum aparelho pareado.", "PocketDesk")
             return
         linhas = []
         for rec in recs:
@@ -135,7 +135,7 @@ class Tray:
             "Esquecer todos os aparelhos pareados?\n\n"
             "Eles precisarao parear de novo pelo QR ou pelo PIN.\n"
             "Uma conexao ja aberta continua ate ser encerrada no app.",
-            "Local Control",
+            "PocketDesk",
             0x04 | 0x20,
         )
         if resposta == 6:  # IDYES

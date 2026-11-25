@@ -1,4 +1,4 @@
-# Local Control
+# PocketDesk
 
 Controle remoto do seu PC Windows pelo celular — **sem nuvem, sem conta e sem
 internet**. O servidor roda no PC, captura a tela e envia por TCP; o app Android
@@ -584,7 +584,7 @@ Dicas para quem vai ficar fora de casa:
 - evite abrir remotamente instaladores e programas que peçam UAC;
 - se precisar controlar um programa elevado, abra-o antes de sair ou use o
   teclado e o mouse físicos;
-- o aviso é uma limitação conhecida do Windows, **não um bug** do Local Control.
+- o aviso é uma limitação conhecida do Windows, **não um bug** do PocketDesk.
 
 A solução completa (veja o Roadmap) é um serviço do Windows rodando como
 `SYSTEM`, que troca de área de trabalho para enxergar UAC/login e injeta entrada
@@ -671,7 +671,7 @@ saber como abrir issues, propor mudanças e enviar pull requests.
 Distribuído sob a **GNU Affero General Public License v3.0 ou posterior**
 (`AGPL-3.0-or-later`) — veja [LICENSE](LICENSE).
 
-A AGPL exige que quem oferece o Local Control como serviço pela rede também
+A AGPL exige que quem oferece o PocketDesk como serviço pela rede também
 disponibilize o código-fonte correspondente. Os arquivos `.py` e `.kt` trazem o
 cabeçalho `SPDX-License-Identifier: AGPL-3.0-or-later`.
 

@@ -87,7 +87,7 @@ def spki_fingerprint(sock: ssl.SSLSocket) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Cliente de teste do Local Control")
+    parser = argparse.ArgumentParser(description="Cliente de teste do PocketDesk")
     parser.add_argument("host", nargs="?", default="127.0.0.1")
     parser.add_argument("port", nargs="?", type=int, default=8765)
     parser.add_argument("frames", nargs="?", type=int, default=40)

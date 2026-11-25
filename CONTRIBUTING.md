@@ -1,6 +1,6 @@
 # Contribuindo
 
-Obrigado pelo interesse em contribuir com o Local Control! Este documento
+Obrigado pelo interesse em contribuir com o PocketDesk! Este documento
 explica como reportar problemas, propor melhorias e enviar código.
 
 ## Antes de começar

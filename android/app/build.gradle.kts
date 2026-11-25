@@ -11,8 +11,8 @@ android {
         applicationId = "com.localcontrol"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.3.1"
     }
 
     buildTypes {
@@ -40,4 +40,8 @@ android {
 dependencies {
     // Leitor de QR Code (Camera2 + ZXing). O resto do app usa so APIs do Android.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // O zxing-android-embedded 4.3.0 usa androidx.core mas nao a declara como
+    // dependencia transitiva: sem isso o leitor de QR abre e cai na hora com
+    // NoClassDefFoundError (androidx.core.content.ContextCompat).
+    implementation("androidx.core:core:1.12.0")
 }

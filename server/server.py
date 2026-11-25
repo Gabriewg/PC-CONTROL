@@ -1268,11 +1268,11 @@ def _set_console_title(count: int, names: str = "") -> None:
         import ctypes
 
         if count <= 0:
-            text = "Local Control - nenhuma conexao ativa"
+            text = "PocketDesk - nenhuma conexao ativa"
         elif count == 1:
-            text = f"Local Control - CONECTADO: {names}"
+            text = f"PocketDesk - CONECTADO: {names}"
         else:
-            text = f"Local Control - {count} conexoes ativas: {names}"
+            text = f"PocketDesk - {count} conexoes ativas: {names}"
         ctypes.windll.kernel32.SetConsoleTitleW(text)
     except Exception:  # noqa: BLE001
         pass
@@ -1487,11 +1487,12 @@ def main() -> None:
     wininput.init_dpi()
 
     banner = r"""
-  _                    _    ___            _             _
- | |   ___   ___ __ _  | |  / __|___  _ _ | |_ _ _ _ _  | |_ ___
- | |__/ _ \ / __/ _` | | |_| (__/ _ \| ' \|  _| '_| ' \ |  _/ _ \
- |____\___/ \___\__,_| |____\___\___/|_||_|\__|_| |_||_| \__\___/
-        controle remoto local do seu PC pelo celular
+ ____            _        _   ____            _
+|  _ \ ___   ___| | _____| |_|  _ \  ___  ___| | __
+| |_) / _ \ / __| |/ / _ \ __| | | |/ _ \/ __| |/ /
+|  __/ (_) | (__|   <  __/ |_| |_| |  __/\__ \   <
+|_|   \___/ \___|_|\_\___|\__|____/ \___||___/_|\_\
+        controle remoto do seu PC pelo celular
 """
     print(banner)
     log(f"versao {VERSION}")
