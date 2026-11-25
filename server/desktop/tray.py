@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 
+from . import platform_win
 from . import theme as T
 
 
@@ -83,8 +84,8 @@ class GuiTray:
 
         base = None
         try:
-            caminho = self.app.resource_dir / "icon.jpg"
-            if caminho.exists():
+            caminho = platform_win.brand_image_path()
+            if caminho is not None:
                 base = Image.open(caminho).convert("RGBA")
                 base = base.resize((64, 64), Image.LANCZOS)
         except Exception:  # noqa: BLE001

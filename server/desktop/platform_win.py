@@ -38,6 +38,15 @@ def resource_dir() -> Path:
     return app_dir().parent
 
 
+def brand_image_path() -> Path | None:
+    """Imagem da marca: brand.png (build) ou o icon.jpg do repositorio."""
+    for nome in ("brand.png", "icon.jpg"):
+        caminho = resource_dir() / nome
+        if caminho.exists():
+            return caminho
+    return None
+
+
 def data_dir() -> Path:
     """Onde ficam PIN, certificado, aparelhos e logs.
 
@@ -45,6 +54,12 @@ def data_dir() -> Path:
     programa (que pode estar em local somente leitura e e' recriada a cada
     atualizacao). Rodando pelo Python, continua ao lado do server.py.
     """
+    override = os.environ.get("POCKETDESK_DATA_DIR")
+    if override:
+        pasta = Path(override).expanduser()
+        pasta.mkdir(parents=True, exist_ok=True)
+        return pasta
+
     if not is_frozen():
         return app_dir()
 
@@ -122,8 +137,8 @@ def set_window_icon(root) -> None:
     try:
         from PIL import Image, ImageTk
 
-        caminho = resource_dir() / "icon.jpg"
-        if not caminho.exists():
+        caminho = brand_image_path()
+        if caminho is None:
             return
         img = Image.open(caminho).convert("RGBA")
         img.thumbnail((64, 64), Image.LANCZOS)

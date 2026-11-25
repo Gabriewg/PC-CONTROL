@@ -36,6 +36,12 @@ android/.idea/
 *.keystore
 *.jks
 
+# ------------------------------------------------------------------ build do PocketDesk.exe
+server/build/
+server/dist/
+server/*.ico
+server/brand.png
+
 # ------------------------------------------------------------------ capturas de tela e pacotes locais
 Screenshot_*.png
 *.zip

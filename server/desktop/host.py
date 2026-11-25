@@ -174,7 +174,15 @@ class ServerHost:
         )
         self.host = servidor.pairing_host()
         self.server = servidor
-        await servidor.run(self.ssl_ctx)
+        try:
+            await servidor.run(self.ssl_ctx)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10048 or exc.errno in (48, 98, 10048):
+                raise HostError(
+                    f"A porta {self.port} ja esta em uso. Feche o outro "
+                    "PocketDesk (ou o servidor antigo) e ligue de novo."
+                ) from exc
+            raise
 
     def stop(self, timeout: float = 6.0) -> None:
         servidor = self.server
