@@ -48,10 +48,11 @@ Baixe o `Poltergeist-<versão>.apk` na mesma página de
 celular (sideload). O TLS 1.3 exige Android 10+; o app instala no 7.0+, mas sem
 TLS não há conexão.
 
-O APK é assinado com a chave fixa do projeto (a de debug do Android, guardada
-em `android/app/poltergeist.jks`): a versão nova instala **por cima** da
-anterior, sem desinstalar nem perder o pareamento. Essa chave não serve para a
-Play Store.
+O APK é assinado com a chave de release do projeto, guardada em **GitHub
+Secrets** (nunca no repositório): a versão nova instala **por cima** da
+anterior. A exceção é quem instalou a **2.0.0**, que usava uma chave que ficou
+pública: desinstale uma vez (isso apaga o pareamento salvo no app) e instale a
+2.0.1 ou mais nova.
 
 ### Onde ficam os dados
 
@@ -153,7 +154,6 @@ antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 │   ├── gerar_icone.py          # gera os ícones a partir de icon.jpg
 │   ├── build-apk.bat           # compila o APK debug
 │   ├── instalar-apk.bat        # instala no celular via adb
-│   ├── app/poltergeist.jks     # chave fixa de assinatura (sideload)
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
 ├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
 ├── .github/workflows/release.yml # gera o exe, o APK e os SHA-256
@@ -197,7 +197,7 @@ shell). O servidor mostra a versão, os IPs e a impressão digital da chave
 pública:
 
 ```
-[2026-01-01 12:00:00] versao 2.0
+[2026-01-01 12:00:00] versao 2.0.1
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -622,10 +622,11 @@ vulnerabilidade, use o
 [Security Advisory privado](https://github.com/Gabriewg/Poltergeist/security/advisories/new);
 não abra issue pública.
 
-O APK das Releases é assinado com a chave fixa do projeto (debug do Android,
-em `android/app/poltergeist.jks`): serve para sideload e permite atualizar por
-cima, mas não para a Play Store. Para publicar oficialmente, gere uma keystore
-própria e configure o `signingConfig` do build de release.
+O APK das Releases é assinado com uma chave de release **privada**, guardada nos
+GitHub Secrets (`ANDROID_KEYSTORE_B64` e senhas) e nunca no repositório. Para
+builds locais de release, aponte `POLTERGEIST_KEYSTORE_PROPERTIES` para o seu
+`keystore.properties`; sem isso, o APK sai com a chave de debug local e não
+serve para publicar. A chave usada na 2.0.0 foi aposentada.
 
 ## 8. Problemas comuns
 

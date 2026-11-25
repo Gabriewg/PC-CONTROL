@@ -9,9 +9,9 @@ do funcionamento. Este documento descreve o que o projeto protege, o que ele
 
 | Componente | Versão | Suporte de segurança |
 |---|---|---|
-| Servidor (`server/`) | 2.0 | Sim |
-| App Android | 2.0.0 | Sim |
-| Versões anteriores | ≤ 1.6 / ≤ 1.3.3 | Não |
+| Servidor (`server/`) | 2.0.1 | Sim |
+| App Android | 2.0.1 | Sim |
+| Versões anteriores | ≤ 2.0.0 | Não |
 
 Correções de segurança são aplicadas na versão atual. Se você usa uma versão
 antiga, atualize antes de relatar um problema de segurança.

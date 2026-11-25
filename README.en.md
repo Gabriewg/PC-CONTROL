@@ -54,10 +54,11 @@ Download `Poltergeist-<version>.apk` from the same
 on the phone (sideload). TLS 1.3 requires Android 10+; the app installs on 7.0+,
 but without TLS it cannot connect.
 
-The APK is signed with the project's fixed key (the Android debug key, kept in
-`android/app/poltergeist.jks`): a new version installs **over** the previous one
-without uninstalling or losing the pairing. That key is not valid for the Play
-Store.
+The APK is signed with the project's private release key, kept in **GitHub
+Secrets** (never in the repository): a new version installs **over** the
+previous one. The exception is anyone who installed **2.0.0**, which used a key
+that became public: uninstall once (this erases the pairing saved in the app)
+and install 2.0.1 or newer.
 
 ### Where the data lives
 
@@ -185,7 +186,6 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── gerar_icone.py          # generates icons from icon.jpg
 │   ├── build-apk.bat           # builds the debug APK
 │   ├── instalar-apk.bat        # installs on the phone via adb
-│   ├── app/poltergeist.jks     # fixed signing key (sideload)
 │   └── gradlew(.bat)           # Gradle Wrapper (pinned version)
 ├── .github/dependabot.yml      # automated pip and Gradle updates
 ├── .github/workflows/release.yml # builds the exe, the APK and the SHA-256
@@ -230,7 +230,7 @@ history). The server prints its version, IP addresses, the public-key
 fingerprint and the pairing QR:
 
 ```
-[2026-01-01 12:00:00] versao 2.0
+[2026-01-01 12:00:00] versao 2.0.1
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=

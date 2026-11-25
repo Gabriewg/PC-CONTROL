@@ -106,13 +106,45 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Preparar a chave de assinatura
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "Secret ANDROID_KEYSTORE_B64 ausente: configure os secrets de assinatura." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/poltergeist-release.jks"
+          test -s "$RUNNER_TEMP/poltergeist-release.jks"
+
       - name: Compilar o APK de release
         working-directory: android
         shell: bash
+        env:
+          POLTERGEIST_KEYSTORE: ${{ runner.temp }}/poltergeist-release.jks
+          POLTERGEIST_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          POLTERGEIST_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          POLTERGEIST_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           if [ -n "$ANDROID_HOME" ]; then echo "sdk.dir=$ANDROID_HOME" > local.properties; fi
           ./gradlew assembleRelease --no-daemon --console=plain
+
+      - name: Conferir a assinatura
+        shell: bash
+        run: |
+          # Impede publicar um APK assinado com a chave de debug local: a
+          # impressao digital precisa ser a da chave de release.
+          esperado="160d9b1347f6801589bafd8d058aa397a8bec820111403d98bb2aa8a22947845"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          saida=$("$APKSIGNER" verify --print-certs \
+            android/app/build/outputs/apk/release/app-release.apk)
+          echo "$saida" | grep "SHA-256 digest"
+          if ! echo "$saida" | grep -qi "$esperado"; then
+            echo "APK assinado com uma chave diferente da de release." >&2
+            exit 1
+          fi
 
       - name: Nomear e gerar o checksum
         shell: bash
@@ -162,8 +194,14 @@ jobs:
 
             - `Poltergeist.exe` — servidor e janela do PC.
             - `Poltergeist-${{ needs.apk.outputs.version }}.apk` — app Android
-              (sideload; instala por cima da versão anterior).
+              (sideload; atualiza por cima da versão anterior).
             - `*.sha256` — confira com `Get-FileHash` (Windows) ou `sha256sum`.
+
+            **Quem tem a 2.0.0 precisa desinstalar uma vez** antes de instalar
+            esta versão: a 2.0.0 usava uma chave de assinatura que ficou pública,
+            e a partir da 2.0.1 o app é assinado com uma chave de release
+            privada. Desinstalar apaga o pareamento salvo no app; pareie de novo
+            depois. Da 2.0.1 em diante, as atualizações instalam por cima.
 
             SHA-256:
             ```

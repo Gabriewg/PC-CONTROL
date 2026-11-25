@@ -3,6 +3,17 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 O histórico detalhado de cada mudança fica no `git log`.
 
+## [2.0.1] - 2026-11-25
+
+### Segurança
+
+- A chave de assinatura do APK saiu do repositório. A 2.0.0 foi assinada com
+  uma chave de debug que ficou pública; a partir da 2.0.1 o CI assina com uma
+  chave de release privada, guardada nos GitHub Secrets. Quem instalou a 2.0.0
+  precisa desinstalar uma vez (a assinatura mudou), o que apaga o pareamento
+  salvo no app.
+- Versões: servidor `2.0.1`, app `2.0.1` (versionCode 9).
+
 ## [2.0.0] - 2026-11-25
 
 ### Adicionado

@@ -73,10 +73,10 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 Se a mudança afetar o protocolo, atualize a seção **Protocolo** do `README.md`.
 
-Não troque `android/app/poltergeist.jks` sem motivo: é a chave fixa de
-assinatura, e mudá-la faz o APK novo exigir desinstalar o anterior. Para uma
-release de verdade na Play Store, o caminho é outra keystore em segredo, não
-esta.
+A chave de assinatura da release fica nos GitHub Secrets. Para gerar um APK de
+release local, use a sua própria chave e aponte
+`POLTERGEIST_KEYSTORE_PROPERTIES` para o `keystore.properties`; sem isso o
+build sai assinado com a chave de debug local e não serve para publicar.
 
 ## O que não commitar
 
@@ -86,8 +86,7 @@ O repositório é público e não deve conter dados de quem desenvolve. O
 - `server/pin.txt`, `server/auth_state.json`, PINs e senhas;
 - `server/devices.json` (credenciais dos aparelhos) e `server/pair.png` (QR);
 - `server/cert.pem`, `server/key.pem`, qualquer `*.pem`/`*.key` e keystores —
-  a exceção é `android/app/poltergeist.jks`, a chave fixa de assinatura do APK
-  (pública de propósito, para as builds locais e do CI assinarem igual);
+  a chave de release do APK fica nos GitHub Secrets, nunca no repositório;
 - logs (`server/server.log*`, `server/server.err.log`, `*.log`);
 - IPs reais, nomes de máquina e caminhos com seu usuário;
 - `android/local.properties`, APKs;

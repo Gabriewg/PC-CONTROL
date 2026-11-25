@@ -111,7 +111,7 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "2.0"
+VERSION = "2.0.1"
 
 # Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
 # Nenhum deles vai para o Git: veja .gitignore.

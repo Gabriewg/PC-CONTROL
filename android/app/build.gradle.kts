@@ -1,6 +1,28 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+// Chave de assinatura: nunca no repositorio. O CI usa os GitHub Secrets; para
+// builds locais de release, aponte POLTERGEIST_KEYSTORE_PROPERTIES para o
+// keystore.properties (com storeFile, storePassword, keyAlias e keyPassword).
+val propsArquivo = System.getenv("POLTERGEIST_KEYSTORE_PROPERTIES")
+val props = propsArquivo?.takeIf { file(it).exists() }?.let { caminho ->
+    val p = Properties()
+    file(caminho).inputStream().use { p.load(it) }
+    p
+}
+
+fun chave(nome: String, env: String): String? =
+    System.getenv(env) ?: props?.getProperty(nome)
+
+val baseChave = propsArquivo?.let { File(it).parentFile }
+val arquivoChave = chave("storeFile", "POLTERGEIST_KEYSTORE")?.let { valor ->
+    val f = File(valor)
+    if (f.isAbsolute) f else baseChave?.resolve(valor) ?: file(valor)
 }
 
 android {
@@ -11,19 +33,22 @@ android {
         applicationId = "io.github.gabriewg.poltergeist"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
-        versionName = "2.0.0"
+        versionCode = 9
+        versionName = "2.0.1"
     }
 
+    // A chave de release fica FORA do repositorio. No CI ela vem dos GitHub
+    // Secrets (o workflow grava o .jks e exporta POLTERGEIST_KEYSTORE...);
+    // localmente, aponte POLTERGEIST_KEYSTORE_PROPERTIES para o
+    // keystore.properties que acompanha a chave.
     signingConfigs {
-        create("release") {
-            // Chave fixa do projeto: a mesma nas builds locais e no CI, para o
-            // APK novo instalar por cima do anterior sem desinstalar. E' a
-            // chave de debug padrao do Android (sideload, nao Play Store).
-            storeFile = file("poltergeist.jks")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (arquivoChave != null && arquivoChave.exists()) {
+            create("release") {
+                storeFile = arquivoChave
+                storePassword = chave("storePassword", "POLTERGEIST_STORE_PASSWORD")
+                keyAlias = chave("keyAlias", "POLTERGEIST_KEY_ALIAS") ?: "poltergeist"
+                keyPassword = chave("keyPassword", "POLTERGEIST_KEY_PASSWORD")
+            }
         }
     }
 
@@ -34,7 +59,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            val assinatura = signingConfigs.findByName("release")
+            if (assinatura == null &&
+                gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }) {
+                logger.warn(
+                    "Chave de release ausente: defina POLTERGEIST_KEYSTORE ou " +
+                        "POLTERGEIST_KEYSTORE_PROPERTIES. Sem ela o APK sai assinado " +
+                        "com a chave de debug local e nao serve para publicar."
+                )
+            }
+            signingConfig = assinatura ?: signingConfigs.getByName("debug")
         }
     }
 
