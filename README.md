@@ -1,4 +1,4 @@
-# PocketDesk
+# Poltergeist
 
 **Português** · [English](README.en.md)
 
@@ -20,18 +20,18 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
         └──────── UDP 8766 (descoberta) ──────┘
 ```
 
-## Windows: o app (PocketDesk.exe)
+## Windows: o app (Poltergeist.exe)
 
-O jeito recomendado de usar no PC é o **PocketDesk.exe**: uma janela única, no
+O jeito recomendado de usar no PC é o **Poltergeist.exe**: uma janela única, no
 estilo RustDesk/AnyDesk, com tudo em um lugar só — ligar o servidor, QR de
 pareamento, PIN, aparelhos e sessões. Nada de abrir `.bat` nem console.
 
-1. Baixe `PocketDesk.exe` na página de
-   [Releases](https://github.com/Gabriewg/PocketDesk/releases).
-2. Confira o SHA-256 (o arquivo `PocketDesk.exe.sha256` vai junto):
+1. Baixe `Poltergeist.exe` na página de
+   [Releases](https://github.com/Gabriewg/Poltergeist/releases).
+2. Confira o SHA-256 (o arquivo `Poltergeist.exe.sha256` vai junto):
 
    ```powershell
-   Get-FileHash .\PocketDesk.exe -Algorithm SHA256
+   Get-FileHash .\Poltergeist.exe -Algorithm SHA256
    ```
 
    O hash precisa ser igual ao publicado na release.
@@ -44,7 +44,7 @@ use **Sair** no menu da bandeja ou no rodapé da janela.
 ### Onde ficam os dados
 
 O executável **não carrega nenhum segredo**. PIN, certificado, aparelhos e log
-são criados em `%LOCALAPPDATA%\PocketDesk` na primeira execução:
+são criados em `%LOCALAPPDATA%\Poltergeist` na primeira execução:
 
 | Arquivo | Para que serve |
 |---|---|
@@ -55,11 +55,21 @@ são criados em `%LOCALAPPDATA%\PocketDesk` na primeira execução:
 | `server.log` | log rotativo |
 
 Para usar outra pasta (modo portátil ou testes), defina
-`POCKETDESK_DATA_DIR` antes de abrir o programa.
+`POLTERGEIST_DATA_DIR` antes de abrir o programa.
+
+Se você já usava o nome antigo (**PocketDesk**), nada se perde: na primeira
+execução o app copia `%LOCALAPPDATA%\PocketDesk` para a pasta nova (PIN,
+certificado e aparelhos incluídos) e registra isso no log. A pasta antiga é
+mantida como cópia de segurança; apague-a quando tiver certeza. A variável
+`POCKETDESK_DATA_DIR` também continua sendo aceita.
+
+Links de QR antigos (`localcontrol://...`) e o APK anterior continuam
+funcionando: o app lê os dois esquemas e o servidor responde à descoberta UDP
+antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 
 ## Recursos
 
-- **Janela desktop (`PocketDesk.exe`)**: servidor, QR, PIN, aparelhos e sessões
+- **Janela desktop (`Poltergeist.exe`)**: servidor, QR, PIN, aparelhos e sessões
   em uma tela só, com tema preto e vinho.
 
 - Vídeo da tela em JPEG com qualidade, resolução e FPS ajustáveis em tempo real.
@@ -92,7 +102,7 @@ Para usar outra pasta (modo portátil ou testes), defina
 ```
 .
 ├── server/                     # servidor Python (Windows)
-│   ├── app.py                  # janela desktop (PocketDesk.exe)
+│   ├── app.py                  # janela desktop (Poltergeist.exe)
 │   ├── desktop/                # tema, widgets, host, bandeja e diálogos
 │   ├── server.py               # TCP/TLS, captura, protocolo, descoberta e pareamento
 │   ├── security.py             # PIN (PBKDF2), desafio HMAC, tokens, aparelhos e TLS
@@ -104,18 +114,18 @@ Para usar outra pasta (modo portátil ou testes), defina
 │   ├── iniciar-oculto.vbs      # sobe o servidor sem janela (legado)
 │   ├── instalar-autostart.bat  # atalho na pasta Inicializar (legado)
 │   ├── liberar-firewall.ps1    # libera as portas 8765/TCP e 8766/UDP
-│   ├── build-exe.bat           # gera dist/PocketDesk.exe + SHA-256
-│   ├── PocketDesk.spec         # receita do PyInstaller
+│   ├── build-exe.bat           # gera dist/Poltergeist.exe + SHA-256
+│   ├── Poltergeist.spec         # receita do PyInstaller
 │   ├── gerar_icone_exe.py      # gera .ico e brand.png a partir do icon.jpg
 │   ├── test_client.py          # cliente de teste (sem celular)
 │   ├── test_pair.py            # testes do pareamento por QR e da credencial
 │   ├── bench*.py               # benchmarks de captura/codificação
 │   └── requirements.txt
 ├── android/                    # app Android (Kotlin)
-│   ├── app/src/main/java/com/localcontrol/
+│   ├── app/src/main/java/io/github/gabriewg/poltergeist/
 │   │   ├── MainActivity.kt     # interface, perfis e pareamento/MITM
 │   │   ├── RemoteClient.kt     # TLS, handshake e recebimento do vídeo
-│   │   ├── Pairing.kt          # parser do link localcontrol:// e token
+│   │   ├── Pairing.kt          # parser do link poltergeist:// e token
 │   │   ├── LocalCrypto.kt      # PBKDF2, HMAC e impressão digital SPKI
 │   │   ├── PinningTrustManager.kt # confia só na chave pública pareada
 │   │   ├── RemoteView.kt       # desenho do vídeo e gestos
@@ -125,11 +135,12 @@ Para usar outra pasta (modo portátil ou testes), defina
 │   ├── instalar-apk.bat        # instala no celular via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
 ├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
-├── .github/workflows/build-exe.yml  # gera o PocketDesk.exe e o SHA-256
+├── .github/workflows/build-exe.yml  # gera o Poltergeist.exe e o SHA-256
 ├── icon.jpg                    # imagem de origem do ícone do app
 ├── conectar-usb.bat            # configura o túnel USB (adb reverse)
 ├── SECURITY.md                 # modelo de ameaça e canal de reporte
 ├── CONTRIBUTING.md
+├── CHANGELOG.md
 └── LICENSE
 ```
 
@@ -137,14 +148,14 @@ Para usar outra pasta (modo portátil ou testes), defina
 
 | Parte | Requisitos |
 |---|---|
-| Servidor | Windows 10/11. O `PocketDesk.exe` já traz tudo; para rodar pelo Python, 3.10+ (as dependências são instaladas pelo `iniciar.bat`) |
+| Servidor | Windows 10/11. O `Poltergeist.exe` já traz tudo; para rodar pelo Python, 3.10+ (as dependências são instaladas pelo `iniciar.bat`) |
 | App | **Android 10+** (API 29) para o TLS 1.3; o APK instala no 7.0+, mas conexões TLS exigem o 10+ |
 | Compilar o app | JDK 17 e Android SDK (API 34); o Gradle 8.7 é baixado pelo wrapper |
 
 ## 1. Rodar o servidor no PC
 
-O caminho recomendado é o **`PocketDesk.exe`** (veja
-[Windows: o app](#windows-o-app-pocketdeskexe)): a janela liga o servidor,
+O caminho recomendado é o **`Poltergeist.exe`** (veja
+[Windows: o app](#windows-o-app-poltergeistexe)): a janela liga o servidor,
 mostra o QR, cria o PIN no primeiro uso e avisa quando alguém conecta.
 
 Para desenvolver ou rodar pelo Python, dê duplo clique em
@@ -222,7 +233,7 @@ cd server
 .venv\Scripts\python.exe server.py --set-pin
 ```
 
-No `PocketDesk.exe`, os arquivos ficam em `%LOCALAPPDATA%\PocketDesk`; rodando
+No `Poltergeist.exe`, os arquivos ficam em `%LOCALAPPDATA%\Poltergeist`; rodando
 pelo Python, em `server/` (tudo ignorado pelo Git):
 
 | Arquivo | Conteúdo |
@@ -339,7 +350,7 @@ O QR vale por **180 segundos** (ajuste com `--pair-ttl`, de 30 a 600) e serve
 expira e é consumido no primeiro pareamento. O link tem o formato:
 
 ```
-localcontrol://192.168.0.10:8765?v=1&fp=<SPKI base64url>&t=<token>&n=<PC>
+poltergeist://192.168.0.10:8765?v=1&fp=<SPKI base64url>&t=<token>&n=<PC>
 ```
 
 No console do servidor:
@@ -584,7 +595,7 @@ de 8+ caracteres; não use em rede não confiável.
 O modelo de ameaça completo — o que o projeto protege, o que **não** protege e o
 que está fora do escopo — está em [SECURITY.md](SECURITY.md). Para relatar uma
 vulnerabilidade, use o
-[Security Advisory privado](https://github.com/Gabriewg/PocketDesk/security/advisories/new);
+[Security Advisory privado](https://github.com/Gabriewg/Poltergeist/security/advisories/new);
 não abra issue pública.
 
 O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
@@ -645,7 +656,7 @@ Dicas para quem vai ficar fora de casa:
 - evite abrir remotamente instaladores e programas que peçam UAC;
 - se precisar controlar um programa elevado, abra-o antes de sair ou use o
   teclado e o mouse físicos;
-- o aviso é uma limitação conhecida do Windows, **não um bug** do PocketDesk.
+- o aviso é uma limitação conhecida do Windows, **não um bug** do Poltergeist.
 
 A solução completa (veja o Roadmap) é um serviço do Windows rodando como
 `SYSTEM`, que troca de área de trabalho para enxergar UAC/login e injeta entrada
@@ -702,7 +713,7 @@ remoto.
 - `SSLSocket` com `TLSv1.3` e um `X509TrustManager` que compara a SPKI com a
   salva em `spki_casa`/`spki_fora`; a verificação de hostname não é desligada
   globalmente.
-- `Pairing.kt` lê `localcontrol://host:porta?fp=...&t=...`, valida o token e
+- `Pairing.kt` lê `poltergeist://host:porta?fp=...&t=...`, valida o token e
   converte a SPKI base64url. A câmera usa ZXing Android Embedded; sem câmera,
   o link pode ser colado.
 - `HELLO v3` escolhe o modo: token de pareamento (`pid` + HMAC do token),
@@ -732,7 +743,7 @@ saber como abrir issues, propor mudanças e enviar pull requests.
 Distribuído sob a **GNU Affero General Public License v3.0 ou posterior**
 (`AGPL-3.0-or-later`) — veja [LICENSE](LICENSE).
 
-A AGPL exige que quem oferece o PocketDesk como serviço pela rede também
+A AGPL exige que quem oferece o Poltergeist como serviço pela rede também
 disponibilize o código-fonte correspondente. Os arquivos `.py` e `.kt` trazem o
 cabeçalho `SPDX-License-Identifier: AGPL-3.0-or-later`.
 

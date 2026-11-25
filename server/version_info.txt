@@ -1,9 +1,9 @@
 # UTF-8
-# Recurso de versao do PocketDesk.exe (mostrado em Propriedades no Windows).
+# Recurso de versao do Poltergeist.exe (mostrado em Propriedades no Windows).
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 6, 0, 0),
-    prodvers=(1, 6, 0, 0),
+    filevers=(2, 0, 0, 0),
+    prodvers=(2, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,16 +14,17 @@ VSVersionInfo(
   kids=[
     StringFileInfo([
       StringTable('040904B0', [
-        StringStruct('CompanyName', 'PocketDesk'),
-        StringStruct('FileDescription', 'PocketDesk - controle remoto local'),
-        StringStruct('FileVersion', '1.6.0'),
-        StringStruct('InternalName', 'PocketDesk'),
+        StringStruct('CompanyName', 'Poltergeist'),
+        StringStruct('FileDescription', 'Poltergeist - controle remoto local'),
+        StringStruct('FileVersion', '2.0.0'),
+        StringStruct('InternalName', 'Poltergeist'),
         StringStruct('LegalCopyright', 'AGPL-3.0-or-later'),
-        StringStruct('OriginalFilename', 'PocketDesk.exe'),
-        StringStruct('ProductName', 'PocketDesk'),
-        StringStruct('ProductVersion', '1.6.0')
+        StringStruct('OriginalFilename', 'Poltergeist.exe'),
+        StringStruct('ProductName', 'Poltergeist'),
+        StringStruct('ProductVersion', '2.0.0')
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]
 )
+

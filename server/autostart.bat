@@ -1,5 +1,5 @@
 @echo off
-rem Inicia o servidor LocalControl em segundo plano (chamado por iniciar-oculto.vbs).
+rem Inicia o servidor Poltergeist em segundo plano (chamado por iniciar-oculto.vbs).
 rem O log fica em server.log, nesta mesma pasta.
 setlocal enabledelayedexpansion
 cd /d "%~dp0"

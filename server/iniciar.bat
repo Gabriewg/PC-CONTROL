@@ -1,5 +1,5 @@
 @echo off
-rem Abre a janela do PocketDesk (o caminho recomendado e' o PocketDesk.exe).
+rem Abre a janela do Poltergeist (o caminho recomendado e' o Poltergeist.exe).
 rem Uso: iniciar.bat            -> janela
 rem      iniciar.bat --console  -> servidor no console (diagnostico)
 setlocal enabledelayedexpansion
@@ -45,7 +45,7 @@ goto :fim
 
 :erro
 echo.
-echo Falha ao preparar o PocketDesk. Verifique se o Python 3.10+ esta no PATH.
+echo Falha ao preparar o Poltergeist. Verifique se o Python 3.10+ esta no PATH.
 pause
 
 :fim

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""PocketDesk Desktop: a janela unica do servidor no Windows.
+"""Poltergeist Desktop: a janela unica do servidor no Windows.
 
-Este e' o ponto de entrada do PocketDesk.exe. Ele abre a interface, liga o
+Este e' o ponto de entrada do Poltergeist.exe. Ele abre a interface, liga o
 servidor na mesma hora e cuida de QR, PIN, aparelhos e sessoes - sem console e
 sem .bat. Os dados (PIN, certificado, aparelhos) ficam em
-%LOCALAPPDATA%\\PocketDesk quando empacotado; rodando pelo Python, ficam ao
+%LOCALAPPDATA%\\Poltergeist quando empacotado; rodando pelo Python, ficam ao
 lado do server.py.
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import logging
 import os
 import queue
 import sys
@@ -32,8 +33,8 @@ import server as srv
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="PocketDesk",
-        description="Janela do servidor PocketDesk (controle remoto local).",
+        prog="Poltergeist",
+        description="Janela do servidor Poltergeist (controle remoto local).",
     )
     parser.add_argument("--port", type=int, default=8765, help="porta TCP (padrao 8765)")
     parser.add_argument(
@@ -55,7 +56,7 @@ def _prepare_streams() -> None:
 
 def _app_user_model_id() -> None:
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PocketDesk")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Poltergeist")
     except Exception:  # noqa: BLE001
         pass
 
@@ -63,10 +64,10 @@ def _app_user_model_id() -> None:
 def main(argv=None) -> int:
     args = _parse_args(argv)
     if args.version:
-        print(f"PocketDesk {srv.VERSION}")
+        print(f"Poltergeist {srv.VERSION}")
         return 0
     if sys.platform != "win32":
-        print("O PocketDesk Desktop usa APIs do Windows. Rode no Windows.")
+        print("O Poltergeist Desktop usa APIs do Windows. Rode no Windows.")
         return 1
 
     _prepare_streams()
@@ -80,6 +81,10 @@ def main(argv=None) -> int:
 
     log_queue: "queue.Queue[str]" = queue.Queue()
     logbus.setup(data / "server.log", log_queue.put)
+
+    aviso_migracao = platform_win.migracao_concluida()
+    if aviso_migracao:
+        logging.getLogger("poltergeist").warning(aviso_migracao)
 
     if not platform_win.acquire_single_instance():
         platform_win.focus_existing()

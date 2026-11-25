@@ -1,6 +1,6 @@
 # Contribuindo
 
-Obrigado pelo interesse em contribuir com o PocketDesk! Este documento
+Obrigado pelo interesse em contribuir com o Poltergeist! Este documento
 explica como reportar problemas, propor melhorias e enviar código.
 
 ## Antes de começar
@@ -93,7 +93,7 @@ precisa ser removido do histórico, não apenas do commit mais recente.
 
 Não abra uma issue pública para relatar vulnerabilidades. Leia o
 [SECURITY.md](SECURITY.md) e use o
-[Security Advisory privado](https://github.com/Gabriewg/PocketDesk/security/advisories/new).
+[Security Advisory privado](https://github.com/Gabriewg/Poltergeist/security/advisories/new).
 Descreva o problema em particular, com passos para reproduzir, e dê um prazo
 razoável para a correção antes de divulgar.
 

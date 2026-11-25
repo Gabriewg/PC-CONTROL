@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Janela principal do PocketDesk: servidor, QR, aparelhos e sessoes."""
+"""Janela principal do Poltergeist: servidor, QR, aparelhos e sessoes."""
 
 from __future__ import annotations
 
@@ -135,7 +135,7 @@ class MainWindow:
 
     def _setup_window(self) -> None:
         root = self.root
-        root.title("PocketDesk")
+        root.title("Poltergeist")
         root.configure(bg=T.BG)
         root.minsize(min(T.px(980), root.winfo_screenwidth() - T.px(40)),
                      min(T.px(650), root.winfo_screenheight() - T.px(90)))
@@ -289,7 +289,7 @@ class MainWindow:
 
         titulos = tk.Frame(header, bg=T.BG)
         titulos.pack(side="left", padx=(T.px(14), 0), pady=self._m(6, 2))
-        _label(titulos, "PocketDesk", T.F_DISPLAY, T.TEXT, T.BG).pack(anchor="w")
+        _label(titulos, "Poltergeist", T.F_DISPLAY, T.TEXT, T.BG).pack(anchor="w")
         _label(
             titulos, "Controle remoto local - sem nuvem, sem conta",
             T.F_SMALL, T.TEXT_MUTED, T.BG,
@@ -378,7 +378,7 @@ class MainWindow:
             action=self._pin_action,
             action_label="Trocar" if self.host.has_pin else "Definir",
         )
-        self._info_row(
+        self._fingerprint_label = self._info_row(
             body, "CHAVE PUBLICA", _short_fingerprint(self.host.fingerprint),
             mono=True, action=self._copy_fingerprint,
         )
@@ -461,7 +461,7 @@ class MainWindow:
 
         _label(
             body,
-            "No celular: PocketDesk > Conectar > Ler QR Code",
+            "No celular: Poltergeist > Conectar > Ler QR Code",
             T.F_TINY, T.TEXT_DIM, wraplength=self._m(330, 300), justify="center",
         ).pack(pady=(self._m(10, 6), 0))
 
@@ -926,8 +926,8 @@ class MainWindow:
             self.show_toast(f"Nao foi possivel alterar: {erro}", "error")
             return
         self.show_toast(
-            "PocketDesk vai abrir junto com o Windows."
-            if desejado else "PocketDesk nao abre mais sozinho.",
+            "Poltergeist vai abrir junto com o Windows."
+            if desejado else "Poltergeist nao abre mais sozinho.",
             "ok",
         )
 
@@ -958,7 +958,7 @@ class MainWindow:
         if erro:
             self.show_toast(f"Firewall: {erro}", "error")
         elif ativo and self._state == "on":
-            self.show_toast("Firewall liberado para a porta do PocketDesk.", "ok")
+            self.show_toast("Firewall liberado para a porta do Poltergeist.", "ok")
 
     # ---------------------------------------------------------------- bandeja
 
@@ -1051,11 +1051,18 @@ class MainWindow:
         except tk.TclError:
             pass
 
+    def _refresh_fingerprint(self) -> None:
+        """A chave publica so' existe depois que o servidor sobe (TLS)."""
+        texto = _short_fingerprint(self.host.fingerprint)
+        if self._fingerprint_label.cget("text") != texto:
+            self._fingerprint_label.configure(text=texto)
+
     def _tick(self) -> None:
         if not self._alive():
             return
         self._tick_qr()
         self._refresh_sessions()
+        self._refresh_fingerprint()
         if self.host.ready:
             self._refresh_devices()
         self._fit_content()

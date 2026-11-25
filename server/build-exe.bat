@@ -1,5 +1,5 @@
 @echo off
-rem Gera dist\PocketDesk.exe + dist\PocketDesk.exe.sha256.
+rem Gera dist\Poltergeist.exe + dist\Poltergeist.exe.sha256.
 rem Nao empacota PIN, chaves nem aparelhos: o app cria tudo na primeira execucao.
 setlocal
 cd /d "%~dp0"
@@ -18,7 +18,7 @@ echo Gerando icones...
 ".venv\Scripts\python.exe" gerar_icone_exe.py || goto :erro
 
 echo Empacotando...
-".venv\Scripts\python.exe" -m PyInstaller PocketDesk.spec --noconfirm --clean || goto :erro
+".venv\Scripts\python.exe" -m PyInstaller Poltergeist.spec --noconfirm --clean || goto :erro
 
 rem Garantia: nenhum segredo pode ir junto do executavel.
 for %%F in (pin.txt devices.json auth_state.json cert.pem key.pem server.log) do (
@@ -29,11 +29,11 @@ for %%F in (pin.txt devices.json auth_state.json cert.pem key.pem server.log) do
 )
 
 echo Gerando checksum SHA-256...
-".venv\Scripts\python.exe" -c "import hashlib, pathlib; p = pathlib.Path('dist/PocketDesk.exe'); h = hashlib.sha256(p.read_bytes()).hexdigest(); pathlib.Path('dist/PocketDesk.exe.sha256').write_text(h + '  PocketDesk.exe\n', encoding='utf-8'); print('SHA-256:', h)" || goto :erro
+".venv\Scripts\python.exe" -c "import hashlib, pathlib; p = pathlib.Path('dist/Poltergeist.exe'); h = hashlib.sha256(p.read_bytes()).hexdigest(); pathlib.Path('dist/Poltergeist.exe.sha256').write_text(h + '  Poltergeist.exe\n', encoding='utf-8'); print('SHA-256:', h)" || goto :erro
 
 echo.
-echo Pronto: dist\PocketDesk.exe
-echo Checksum: dist\PocketDesk.exe.sha256
+echo Pronto: dist\Poltergeist.exe
+echo Checksum: dist\Poltergeist.exe.sha256
 goto :fim
 
 :erro

@@ -24,13 +24,13 @@ class GuiTray:
             return False
         try:
             menu = pystray.Menu(
-                pystray.MenuItem("Abrir PocketDesk", self._open, default=True),
+                pystray.MenuItem("Abrir Poltergeist", self._open, default=True),
                 pystray.MenuItem("Gerar novo QR", self._qr),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Sair", self._quit),
             )
             self.icon = pystray.Icon(
-                "PocketDesk", self._image(False), "PocketDesk", menu
+                "Poltergeist", self._image(False), "Poltergeist", menu
             )
             if hasattr(self.icon, "run_detached"):
                 self.icon.run_detached()
@@ -56,12 +56,12 @@ class GuiTray:
             self.icon.icon = self._image(active)
             if active:
                 texto = (
-                    "PocketDesk - conectado"
+                    "Poltergeist - conectado"
                     if count <= 1
-                    else f"PocketDesk - {count} conexoes"
+                    else f"Poltergeist - {count} conexoes"
                 )
             else:
-                texto = "PocketDesk - aguardando conexao"
+                texto = "Poltergeist - aguardando conexao"
             self.icon.title = texto
         except Exception:  # noqa: BLE001
             pass

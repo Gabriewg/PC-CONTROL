@@ -26,7 +26,7 @@ class QueueHandler(logging.Handler):
 
 
 def setup(log_path: Path, sink) -> logging.Logger:
-    logger = logging.getLogger("localcontrol")
+    logger = logging.getLogger("poltergeist")
     logger.setLevel(logging.INFO)
     logger.propagate = False
     for handler in list(logger.handlers):

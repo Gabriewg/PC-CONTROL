@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.localcontrol
+package io.github.gabriewg.poltergeist
 
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate

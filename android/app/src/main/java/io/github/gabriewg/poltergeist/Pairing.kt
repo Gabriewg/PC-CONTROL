@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.localcontrol
+package io.github.gabriewg.poltergeist
 
 import android.net.Uri
 import android.util.Base64
@@ -7,7 +7,7 @@ import android.util.Base64
 /**
  * Link do QR de pareamento:
  *
- *   localcontrol://192.168.0.10:8765?fp=<SPKI base64url>&t=<token>&n=<PC>
+ *   poltergeist://192.168.0.10:8765?fp=<SPKI base64url>&t=<token>&n=<PC>
  *
  * O `fp` e a impressao digital da chave publica (SPKI) do PC, o mesmo valor
  * que o pinning usa. O `t` e um token de uso unico, valido por poucos minutos:
@@ -15,7 +15,9 @@ import android.util.Base64
  */
 object Pairing {
 
-    const val SCHEME = "localcontrol"
+    const val SCHEME = "poltergeist"
+    /** Esquema antigo do QR: links ja impressos/colados continuam funcionando. */
+    const val LEGACY_SCHEME = "localcontrol"
     private const val MAX_TOKEN = 200
     private const val MIN_TOKEN = 20
 
@@ -34,12 +36,14 @@ object Pairing {
         } catch (_: Exception) {
             return null
         }
-        if (!uri.scheme.equals(SCHEME, ignoreCase = true)) return null
+        if (!uri.scheme.equals(SCHEME, ignoreCase = true) &&
+            !uri.scheme.equals(LEGACY_SCHEME, ignoreCase = true)
+        ) return null
 
         val host: String
         val port: Int
         if (uri.host.equals("pair", ignoreCase = true)) {
-            // formato alternativo: localcontrol://pair?host=...&port=...
+            // formato alternativo: poltergeist://pair?host=...&port=...
             host = uri.getQueryParameter("host")?.trim().orEmpty()
             port = uri.getQueryParameter("port")?.toIntOrNull() ?: 8765
         } else {

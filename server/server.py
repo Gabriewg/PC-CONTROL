@@ -87,7 +87,10 @@ MSG_CHALLENGE = 0x15
 MSG_PAIR_OK = 0x16
 
 DISCOVERY_PORT = 8766
-DISCOVERY_MAGIC = b"LOCALCONTROL_DISCOVER"
+DISCOVERY_MAGIC = b"POLTERGEIST_DISCOVER"
+# O app antigo (Local Control) procura o PC com o magic antigo. Aceitar os dois
+# custa nada e evita que um APK ja instalado deixe de achar o servidor.
+DISCOVERY_MAGIC_LEGACY = b"LOCALCONTROL_DISCOVER"
 # Teto das mensagens que o app manda. O servidor e quem envia os JPEGs; aceitar
 # qualquer tamanho do cliente permitiria derrubar o PC com um cabecalho falso.
 MAX_APP_MESSAGE = 64 * 1024
@@ -108,7 +111,7 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "1.6"
+VERSION = "2.0"
 
 # Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
 # Nenhum deles vai para o Git: veja .gitignore.
@@ -127,7 +130,7 @@ LOG_BACKUPS = 3
 def set_data_dir(path: Path) -> None:
     """Redireciona PIN, certificado, aparelhos e logs para outra pasta.
 
-    O .exe chama isto para usar %LOCALAPPDATA%\\PocketDesk: dentro do
+    O .exe chama isto para usar %LOCALAPPDATA%\\Poltergeist: dentro do
     PyInstaller o diretorio do server.py e' temporario e some a cada execucao.
     """
     global BASE_DIR, LOG_PATH, PIN_PATH, CERT_PATH, KEY_PATH, STATE_PATH
@@ -144,7 +147,7 @@ def set_data_dir(path: Path) -> None:
     PAIR_IMAGE_PATH = pasta / "pair.png"
 
 
-logger = logging.getLogger("localcontrol")
+logger = logging.getLogger("poltergeist")
 
 
 def setup_logging() -> None:
@@ -1212,10 +1215,10 @@ class Server:
                 self.transport = transport
 
             def datagram_received(self, data: bytes, addr: tuple) -> None:  # type: ignore[override]
-                if data.strip() != DISCOVERY_MAGIC:
+                if data.strip() not in (DISCOVERY_MAGIC, DISCOVERY_MAGIC_LEGACY):
                     return
                 info = {
-                    "app": "localcontrol",
+                    "app": "poltergeist",
                     "name": socket.gethostname(),
                     "port": port,
                     "version": VERSION,
@@ -1317,11 +1320,11 @@ def _set_console_title(count: int, names: str = "") -> None:
         import ctypes
 
         if count <= 0:
-            text = "PocketDesk - nenhuma conexao ativa"
+            text = "Poltergeist - nenhuma conexao ativa"
         elif count == 1:
-            text = f"PocketDesk - CONECTADO: {names}"
+            text = f"Poltergeist - CONECTADO: {names}"
         else:
-            text = f"PocketDesk - {count} conexoes ativas: {names}"
+            text = f"Poltergeist - {count} conexoes ativas: {names}"
         ctypes.windll.kernel32.SetConsoleTitleW(text)
     except Exception:  # noqa: BLE001
         pass

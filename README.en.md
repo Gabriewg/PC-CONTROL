@@ -1,4 +1,4 @@
-# PocketDesk
+# Poltergeist
 
 **English** · [Português](README.md)
 
@@ -27,18 +27,18 @@ between the devices.
         └──────── UDP 8766 (discovery) ───────┘
 ```
 
-## Windows app (PocketDesk.exe)
+## Windows app (Poltergeist.exe)
 
-The recommended way to run it on the PC is the **PocketDesk.exe** desktop app: a
+The recommended way to run it on the PC is the **Poltergeist.exe** desktop app: a
 single dark window (black + wine) with the server switch, pairing QR, PIN, paired
 devices and live sessions — no `.bat` files and no console.
 
-1. Download `PocketDesk.exe` from
-   [Releases](https://github.com/Gabriewg/PocketDesk/releases).
-2. Verify the SHA-256 (the release also ships `PocketDesk.exe.sha256`):
+1. Download `Poltergeist.exe` from
+   [Releases](https://github.com/Gabriewg/Poltergeist/releases).
+2. Verify the SHA-256 (the release also ships `Poltergeist.exe.sha256`):
 
    ```powershell
-   Get-FileHash .\PocketDesk.exe -Algorithm SHA256
+   Get-FileHash .\Poltergeist.exe -Algorithm SHA256
    ```
 
 3. Double-click it. On first run the window asks for a PIN and creates the TLS
@@ -50,8 +50,17 @@ or the window footer to stop the server.
 ### Where the data lives
 
 The executable bundles **no secrets**. PIN, certificate, devices and logs are
-created in `%LOCALAPPDATA%\PocketDesk` on first run. Set `POCKETDESK_DATA_DIR`
+created in `%LOCALAPPDATA%\Poltergeist` on first run. Set `POLTERGEIST_DATA_DIR`
 to use another folder (portable mode or tests).
+
+If you already used the old name (**PocketDesk**), nothing is lost: on first run
+the app copies `%LOCALAPPDATA%\PocketDesk` into the new folder (PIN, certificate
+and paired devices included) and logs it. The old folder is kept as a backup;
+delete it once you are sure. `POCKETDESK_DATA_DIR` is still accepted too.
+
+Old QR links (`localcontrol://...`) and the previous APK keep working: the app
+accepts both schemes and the server still answers the old UDP discovery magic.
+Only the new link, `poltergeist://`, is generated from now on.
 
 ## What this project demonstrates
 
@@ -71,7 +80,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 ## Features
 
-- **Desktop app (`PocketDesk.exe`)**: server switch, pairing QR, PIN, paired
+- **Desktop app (`Poltergeist.exe`)**: server switch, pairing QR, PIN, paired
   devices and live sessions in one dark window.
 - JPEG screen streaming with quality, resolution and FPS adjustable in real time.
 - **DXGI Desktop Duplication** capture (GPU, ~8 ms/frame) with automatic fallback
@@ -124,7 +133,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 ```
 .
 ├── server/                     # Python server (Windows)
-│   ├── app.py                  # desktop window (PocketDesk.exe)
+│   ├── app.py                  # desktop window (Poltergeist.exe)
 │   ├── desktop/                # theme, widgets, host, tray and dialogs
 │   ├── server.py               # TCP/TLS, capture, protocol, discovery, pairing
 │   ├── security.py             # PIN (PBKDF2), HMAC challenge, tokens, devices, TLS
@@ -136,18 +145,18 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── iniciar-oculto.vbs      # starts the server without a window (legacy)
 │   ├── instalar-autostart.bat  # shortcut in the Windows Startup folder (legacy)
 │   ├── liberar-firewall.ps1    # opens ports 8765/TCP and 8766/UDP
-│   ├── build-exe.bat           # builds dist/PocketDesk.exe + SHA-256
-│   ├── PocketDesk.spec         # PyInstaller recipe
+│   ├── build-exe.bat           # builds dist/Poltergeist.exe + SHA-256
+│   ├── Poltergeist.spec         # PyInstaller recipe
 │   ├── gerar_icone_exe.py      # builds .ico and brand.png from icon.jpg
 │   ├── test_client.py          # headless test client (no phone needed)
 │   ├── test_pair.py            # QR pairing and device-credential tests
 │   ├── bench*.py               # capture/encoding benchmarks
 │   └── requirements.txt
 ├── android/                    # Android app (Kotlin)
-│   ├── app/src/main/java/com/localcontrol/
+│   ├── app/src/main/java/io/github/gabriewg/poltergeist/
 │   │   ├── MainActivity.kt     # UI, profiles, pairing/MITM handling
 │   │   ├── RemoteClient.kt     # TLS, handshake, video receiving
-│   │   ├── Pairing.kt          # localcontrol:// link and token parser
+│   │   ├── Pairing.kt          # poltergeist:// link and token parser
 │   │   ├── LocalCrypto.kt      # PBKDF2, HMAC, SPKI fingerprint
 │   │   ├── PinningTrustManager.kt # trusts only the paired public key
 │   │   ├── RemoteView.kt       # video drawing and gestures
@@ -157,11 +166,12 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── instalar-apk.bat        # installs on the phone via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (pinned version)
 ├── .github/dependabot.yml      # automated pip and Gradle updates
-├── .github/workflows/build-exe.yml # builds PocketDesk.exe and the SHA-256
+├── .github/workflows/build-exe.yml # builds Poltergeist.exe and the SHA-256
 ├── icon.jpg                    # source image for the app icon
 ├── conectar-usb.bat            # sets up the USB tunnel (adb reverse)
 ├── SECURITY.md                 # threat model and reporting channel
 ├── CONTRIBUTING.md
+├── CHANGELOG.md
 └── LICENSE
 ```
 
@@ -169,7 +179,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 | Part | Requirements |
 |---|---|
-| Server | Windows 10/11. `PocketDesk.exe` bundles everything; to run from Python, 3.10+ (dependencies are installed by `iniciar.bat`) |
+| Server | Windows 10/11. `Poltergeist.exe` bundles everything; to run from Python, 3.10+ (dependencies are installed by `iniciar.bat`) |
 | App | **Android 10+** (API 29) for TLS 1.3; the APK installs on 7.0+, but TLS connections require 10+ |
 | Building the app | JDK 17 and Android SDK (API 34); Gradle 8.7 is downloaded by the wrapper |
 
@@ -177,8 +187,8 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 
 ### 1. Run the server on the PC
 
-The recommended path is **`PocketDesk.exe`** (see
-[Windows app](#windows-app-pocketdeskexe)): the window starts the server, shows
+The recommended path is **`Poltergeist.exe`** (see
+[Windows app](#windows-app-poltergeistexe)): the window starts the server, shows
 the QR, creates the PIN on first run and warns you when someone connects.
 
 For development, double-click **`server/iniciar.bat`** (opens the same window) or
@@ -237,7 +247,7 @@ console options:
 
 #### Local files (all git-ignored)
 
-With `PocketDesk.exe` these files live in `%LOCALAPPDATA%\PocketDesk`; when run
+With `Poltergeist.exe` these files live in `%LOCALAPPDATA%\Poltergeist`; when run
 from Python they stay in `server/`:
 
 | File | Contents |
@@ -280,7 +290,7 @@ The QR is valid for **180 seconds** (adjustable with `--pair-ttl`, 30–600) and
 be used **once**. The link format is:
 
 ```
-localcontrol://192.168.0.10:8765?v=1&fp=<SPKI base64url>&t=<token>&n=<PC>
+poltergeist://192.168.0.10:8765?v=1&fp=<SPKI base64url>&t=<token>&n=<PC>
 ```
 
 **USB.** Enable USB debugging, connect the cable, run `conectar-usb.bat` on the
@@ -377,7 +387,7 @@ did not change, keeping the cursor smooth while idle.
 The full threat model — what the project protects, what it does **not** protect
 and what is out of scope — is in [SECURITY.md](SECURITY.md). To report a
 vulnerability, use the
-[private Security Advisory](https://github.com/Gabriewg/PocketDesk/security/advisories/new);
+[private Security Advisory](https://github.com/Gabriewg/Poltergeist/security/advisories/new);
 please do not open a public issue.
 
 > The server grants **full control** of the PC to anyone who authenticates. Run it
@@ -458,7 +468,7 @@ for how to open issues, propose changes and send pull requests.
 Distributed under the **GNU Affero General Public License v3.0 or later**
 (`AGPL-3.0-or-later`) — see [LICENSE](LICENSE).
 
-The AGPL requires that anyone offering PocketDesk as a network service also makes
+The AGPL requires that anyone offering Poltergeist as a network service also makes
 the corresponding source code available. Every `.py` and `.kt` file carries the
 `SPDX-License-Identifier: AGPL-3.0-or-later` header.
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import security
 import server as srv
 
-log = logging.getLogger("localcontrol")
+log = logging.getLogger("poltergeist")
 
 
 class HostError(RuntimeError):
@@ -180,7 +180,7 @@ class ServerHost:
             if getattr(exc, "winerror", None) == 10048 or exc.errno in (48, 98, 10048):
                 raise HostError(
                     f"A porta {self.port} ja esta em uso. Feche o outro "
-                    "PocketDesk (ou o servidor antigo) e ligue de novo."
+                    "Poltergeist (ou o servidor antigo) e ligue de novo."
                 ) from exc
             raise
 

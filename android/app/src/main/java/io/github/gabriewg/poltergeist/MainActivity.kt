@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.localcontrol
+package io.github.gabriewg.poltergeist
 
 import android.Manifest
 import android.app.Activity
@@ -102,7 +102,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
-        prefs = getSharedPreferences("localcontrol", MODE_PRIVATE)
+        prefs = getSharedPreferences("poltergeist", MODE_PRIVATE)
 
         bindViews()
 
@@ -356,7 +356,7 @@ class MainActivity : Activity(), RemoteView.Listener {
             textSize = 14f
         }
         val campo = EditText(this).apply {
-            hint = "localcontrol://…"
+            hint = "poltergeist://…"
             setText(prefill.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             maxLines = 3

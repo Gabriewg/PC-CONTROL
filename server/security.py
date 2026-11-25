@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Autenticacao, limite de tentativas e TLS do servidor PocketDesk.
+"""Autenticacao, limite de tentativas e TLS do servidor Poltergeist.
 
 O PIN nunca trafega pela rede:
 
@@ -212,7 +212,7 @@ def fingerprint_from_url(value: str) -> str:
 def pairing_uri(
     host: str, port: int, fingerprint_b64: str, token: str, name: str = ""
 ) -> str:
-    """Monta o link do QR: localcontrol://host:porta?fp=...&t=...&n=..."""
+    """Monta o link do QR: poltergeist://host:porta?fp=...&t=...&n=..."""
     from urllib.parse import urlencode
 
     if ":" in host and not host.startswith("["):
@@ -225,7 +225,7 @@ def pairing_uri(
             "n": name,
         }
     )
-    return f"localcontrol://{host}:{int(port)}?{query}"
+    return f"poltergeist://{host}:{int(port)}?{query}"
 
 
 @dataclass
@@ -592,13 +592,13 @@ def ensure_certificate(cert_path: Path, key_path: Path, days: int = 1825) -> boo
     agora = datetime.now(timezone.utc)
     nome = x509.Name(
         [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PocketDesk"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "PocketDesk"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Poltergeist"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "Poltergeist"),
         ]
     )
 
     san = [
-        x509.DNSName("localcontrol"),
+        x509.DNSName("poltergeist"),
         x509.DNSName("localhost"),
         x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
     ]

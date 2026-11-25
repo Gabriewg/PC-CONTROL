@@ -40,11 +40,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Abre o app direto pelo link do QR: localcontrol://host:porta?... -->
+            <!-- Abre o app direto pelo link do QR: poltergeist://host:porta?...
+                 O esquema antigo (localcontrol) continua aceito para links ja
+                 existentes; o servidor novo so' gera poltergeist://. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="poltergeist" />
                 <data android:scheme="localcontrol" />
             </intent-filter>
         </activity>

@@ -1,5 +1,5 @@
 @echo off
-rem Define ou troca o PIN do Local Control (fica salvo em pin.txt, fora do Git).
+rem Define ou troca o PIN do Poltergeist (fica salvo em pin.txt, fora do Git).
 rem Uso normal:  definir-pin.bat
 rem Sem TLS:     definir-pin.bat --no-tls   (exige PIN de 8+ caracteres)
 setlocal

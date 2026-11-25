@@ -22,5 +22,5 @@ if errorlevel 1 (
 
 echo.
 echo Instalado. Abrindo o app...
-adb shell monkey -p com.localcontrol -c android.intent.category.LAUNCHER 1 >nul 2>&1
+adb shell monkey -p io.github.gabriewg.poltergeist -c android.intent.category.LAUNCHER 1 >nul 2>&1
 pause

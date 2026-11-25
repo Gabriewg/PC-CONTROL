@@ -47,14 +47,25 @@ def brand_image_path() -> Path | None:
     return None
 
 
+NOME_PASTA = "Poltergeist"
+# Nome usado ate' a versao 1.6. Os dados (PIN, certificado, aparelhos) sao
+# copiados de la' na primeira execucao com o nome novo; a pasta antiga fica
+# intacta, como copia de seguranca.
+NOME_PASTA_ANTIGA = "PocketDesk"
+MIGRACAO: dict[str, object] = {"origem": None, "arquivos": 0, "falhas": []}
+
+
 def data_dir() -> Path:
     """Onde ficam PIN, certificado, aparelhos e logs.
 
-    No .exe os dados vao para %LOCALAPPDATA%\\PocketDesk, fora da pasta do
+    No .exe os dados vao para %LOCALAPPDATA%\\Poltergeist, fora da pasta do
     programa (que pode estar em local somente leitura e e' recriada a cada
     atualizacao). Rodando pelo Python, continua ao lado do server.py.
     """
-    override = os.environ.get("POCKETDESK_DATA_DIR")
+    override = (
+        os.environ.get("POLTERGEIST_DATA_DIR")
+        or os.environ.get("POCKETDESK_DATA_DIR")  # nome antigo, ainda aceito
+    )
     if override:
         pasta = Path(override).expanduser()
         pasta.mkdir(parents=True, exist_ok=True)
@@ -64,10 +75,53 @@ def data_dir() -> Path:
         return app_dir()
 
     local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    destino = Path(local) / "PocketDesk"
+    destino = Path(local) / NOME_PASTA
+    legado = Path(local) / NOME_PASTA_ANTIGA
+    if not destino.exists() and legado.is_dir():
+        _copiar_pasta(legado, destino)
     destino.mkdir(parents=True, exist_ok=True)
     _migrar(destino)
     return destino
+
+
+def _copiar_pasta(origem: Path, destino: Path) -> None:
+    """Copia a pasta de dados antiga inteira, sem apagar a original.
+
+    Nunca sobrescreve nada e nunca remove o que estava la': se algum arquivo
+    nao puder ser copiado, o nome vai para MIGRACAO["falhas"] e a janela avisa.
+    """
+    destino.mkdir(parents=True, exist_ok=True)
+    copiados = 0
+    falhas: list[str] = []
+    for item in origem.rglob("*"):
+        if not item.is_file():
+            continue
+        alvo = destino / item.relative_to(origem)
+        if alvo.exists():
+            continue
+        try:
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            alvo.write_bytes(item.read_bytes())
+            copiados += 1
+        except OSError as exc:
+            falhas.append(f"{item.name}: {exc}")
+    MIGRACAO.update(origem=str(origem), arquivos=copiados, falhas=falhas)
+
+
+def migracao_concluida() -> str | None:
+    """Mensagem para o log quando os dados vieram da pasta antiga."""
+    origem = MIGRACAO.get("origem")
+    if not origem:
+        return None
+    copiados = int(MIGRACAO.get("arquivos") or 0)
+    falhas = list(MIGRACAO.get("falhas") or [])
+    texto = (
+        f"dados migrados de {origem} ({copiados} arquivo(s) copiado(s)); "
+        f"a pasta antiga foi mantida"
+    )
+    if falhas:
+        texto += f"; falhou: {', '.join(falhas)}"
+    return texto
 
 
 def _migrar(destino: Path) -> None:
@@ -152,8 +206,8 @@ def set_window_icon(root) -> None:
 # ------------------------------------------------------------------ instancia unica
 
 
-def acquire_single_instance(name: str = "PocketDesk.GUI.Mutex") -> bool:
-    """False quando o PocketDesk ja esta aberto."""
+def acquire_single_instance(name: str = "Poltergeist.GUI.Mutex") -> bool:
+    """False quando o Poltergeist ja esta aberto."""
     global _mutex_handle
     try:
         kernel32 = ctypes.windll.kernel32
@@ -163,7 +217,7 @@ def acquire_single_instance(name: str = "PocketDesk.GUI.Mutex") -> bool:
         return True
 
 
-def focus_existing(title: str = "PocketDesk") -> bool:
+def focus_existing(title: str = "Poltergeist") -> bool:
     try:
         user32 = ctypes.windll.user32
         hwnd = user32.FindWindowW(None, title)
@@ -180,6 +234,10 @@ def focus_existing(title: str = "PocketDesk") -> bool:
 
 
 def autostart_path() -> Path:
+    return _startup_dir() / f"{NOME_PASTA}.lnk"
+
+
+def _startup_dir() -> Path:
     appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
     return (
         Path(appdata)
@@ -188,8 +246,15 @@ def autostart_path() -> Path:
         / "Start Menu"
         / "Programs"
         / "Startup"
-        / "PocketDesk.lnk"
     )
+
+
+def _remove_legacy_autostart() -> None:
+    """Apaga o atalho com o nome antigo (senao o PC abriria dois apps)."""
+    try:
+        (_startup_dir() / f"{NOME_PASTA_ANTIGA}.lnk").unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def autostart_enabled() -> bool:
@@ -212,10 +277,12 @@ def set_autostart(enabled: bool) -> tuple[bool, str]:
     if not enabled:
         try:
             caminho.unlink(missing_ok=True)
+            _remove_legacy_autostart()
             return True, ""
         except OSError as exc:
             return False, str(exc)
 
+    _remove_legacy_autostart()
     alvo, argumentos, pasta = _launch_target()
     icon = alvo
 
@@ -250,7 +317,7 @@ def firewall_enabled(port: int = 8765) -> bool:
     try:
         proc = subprocess.run(
             ["netsh", "advfirewall", "firewall", "show", "rule",
-             f"name=PocketDesk TCP {port}"],
+             f"name=Poltergeist TCP {port}"],
             capture_output=True, text=True, timeout=8,
             creationflags=CREATE_NO_WINDOW,
         )
@@ -262,13 +329,16 @@ def firewall_enabled(port: int = 8765) -> bool:
 def open_firewall(port: int = 8765, discovery_port: int = 8766) -> tuple[bool, str]:
     """Cria as regras de entrada com elevacao (UAC)."""
     regras = [
-        f'netsh advfirewall firewall delete rule name="PocketDesk TCP {port}"',
-        f'netsh advfirewall firewall delete rule name="PocketDesk UDP {discovery_port}"',
+        # remove as regras antigas (nome anterior) para nao deixar buraco aberto
+        f'netsh advfirewall firewall delete rule name="{NOME_PASTA_ANTIGA} TCP {port}"',
+        f'netsh advfirewall firewall delete rule name="{NOME_PASTA_ANTIGA} UDP {discovery_port}"',
+        f'netsh advfirewall firewall delete rule name="Poltergeist TCP {port}"',
+        f'netsh advfirewall firewall delete rule name="Poltergeist UDP {discovery_port}"',
         'netsh advfirewall firewall add rule '
-        f'name="PocketDesk TCP {port}" dir=in action=allow protocol=TCP '
+        f'name="Poltergeist TCP {port}" dir=in action=allow protocol=TCP '
         f'localport={port} profile=private,domain',
         'netsh advfirewall firewall add rule '
-        f'name="PocketDesk UDP {discovery_port}" dir=in action=allow protocol=UDP '
+        f'name="Poltergeist UDP {discovery_port}" dir=in action=allow protocol=UDP '
         f'localport={discovery_port} profile=private,domain',
     ]
     script = " & ".join(regras)

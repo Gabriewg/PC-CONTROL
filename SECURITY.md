@@ -1,6 +1,6 @@
-# Segurança do Local Control
+# Segurança do Poltergeist
 
-O Local Control dá **controle total do PC** a quem se autenticar: ele captura a
+O Poltergeist dá **controle total do PC** a quem se autenticar: ele captura a
 tela e injeta mouse e teclado. Por isso, segurança aqui não é um extra — é parte
 do funcionamento. Este documento descreve o que o projeto protege, o que ele
 **não** protege e como relatar uma vulnerabilidade.
@@ -23,7 +23,7 @@ existir correção e podem colocar outros usuários em risco.
 
 Use o canal privado de **GitHub Security Advisories**:
 
-> https://github.com/Gabriewg/PC-CONTROL/security/advisories/new
+> https://github.com/Gabriewg/Poltergeist/security/advisories/new
 
 Inclua, se possível:
 
@@ -95,7 +95,7 @@ dado no aviso de segurança, se você quiser.
 - **PIN como alternativa manual.** Quem preferir não usar QR pode digitar o PIN;
   nesse caso o app mostra a impressão digital do PC para confirmação no primeiro
   uso.
-- **Links externos pedem confirmação.** Um `localcontrol://` aberto por outro
+- **Links externos pedem confirmação.** Um `poltergeist://` aberto por outro
   app ou navegador mostra PC, porta e chave e só conecta depois do usuário
   confirmar. O QR lido dentro do app continua automático.
 
@@ -123,11 +123,16 @@ dado no aviso de segurança, se você quiser.
 | `pair.png` | QR de pareamento | ignorado pelo Git; apague após usar |
 | `server.log` | log rotativo | ignorado pelo Git |
 
-Esses arquivos **não fazem parte do `PocketDesk.exe`**: o executável é publicado
+Esses arquivos **não fazem parte do `Poltergeist.exe`**: o executável é publicado
 sem PIN, sem chave privada e sem aparelhos. Eles são criados na primeira execução
-em `%LOCALAPPDATA%\PocketDesk` (ou em `server/` quando o servidor roda pelo
-Python). Cada release publica também `PocketDesk.exe.sha256`; confira com
-`Get-FileHash .\PocketDesk.exe -Algorithm SHA256` antes de abrir.
+em `%LOCALAPPDATA%\Poltergeist` (ou em `server/` quando o servidor roda pelo
+Python). Cada release publica também `Poltergeist.exe.sha256`; confira com
+`Get-FileHash .\Poltergeist.exe -Algorithm SHA256` antes de abrir.
+
+Quem já usava o nome antigo não fica sem os dados: na primeira execução a pasta
+`%LOCALAPPDATA%\PocketDesk` é **copiada** (nunca movida nem apagada) para a pasta
+nova, incluindo `pin.txt`, `cert.pem` e `devices.json`. A cópia é registrada no
+log; a pasta antiga continua lá até você apagá-la de propósito.
 
 ## O que o projeto NÃO protege
 

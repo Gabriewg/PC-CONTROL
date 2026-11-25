@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.localcontrol
+package io.github.gabriewg.poltergeist
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory

@@ -1,4 +1,4 @@
-name: PocketDesk.exe
+name: Poltergeist.exe
 
 # Gera o executavel portatil do Windows (PyInstaller) e o SHA-256.
 # Em tags v* tambem publica os dois arquivos na release.
@@ -45,7 +45,7 @@ jobs:
 
       - name: Empacotar
         working-directory: server
-        run: python -m PyInstaller PocketDesk.spec --noconfirm --clean
+        run: python -m PyInstaller Poltergeist.spec --noconfirm --clean
 
       - name: Garantir que nenhum segredo entrou no pacote
         working-directory: server
@@ -60,39 +60,39 @@ jobs:
         working-directory: server
         shell: pwsh
         run: |
-          $hash = (Get-FileHash dist/PocketDesk.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  PocketDesk.exe" | Set-Content dist/PocketDesk.exe.sha256 -Encoding ascii
+          $hash = (Get-FileHash dist/Poltergeist.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  Poltergeist.exe" | Set-Content dist/Poltergeist.exe.sha256 -Encoding ascii
           "SHA256=$hash" >> $env:GITHUB_ENV
 
       - name: Guardar o executavel e o checksum
         uses: actions/upload-artifact@v4
         with:
-          name: PocketDesk-windows
+          name: Poltergeist-windows
           if-no-files-found: error
           path: |
-            server/dist/PocketDesk.exe
-            server/dist/PocketDesk.exe.sha256
+            server/dist/Poltergeist.exe
+            server/dist/Poltergeist.exe.sha256
 
       - name: Publicar na release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            server/dist/PocketDesk.exe
-            server/dist/PocketDesk.exe.sha256
+            server/dist/Poltergeist.exe
+            server/dist/Poltergeist.exe.sha256
           body: |
-            **PocketDesk ${{ github.ref_name }}** (Windows 10/11, portatil)
+            **Poltergeist ${{ github.ref_name }}** (Windows 10/11, portatil)
 
-            Baixe `PocketDesk.exe`, rode e pronto: a tela cria o PIN e o
+            Baixe `Poltergeist.exe`, rode e pronto: a tela cria o PIN e o
             certificado na primeira execucao (nada de segredo vai dentro do
             arquivo).
 
-            SHA-256 do `PocketDesk.exe`:
+            SHA-256 do `Poltergeist.exe`:
             ```
-            ${{ env.SHA256 }}  PocketDesk.exe
+            ${{ env.SHA256 }}  Poltergeist.exe
             ```
 
             Para conferir no PowerShell:
             ```powershell
-            Get-FileHash .\PocketDesk.exe -Algorithm SHA256
+            Get-FileHash .\Poltergeist.exe -Algorithm SHA256
             ```

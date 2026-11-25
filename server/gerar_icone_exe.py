@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Gera os icones do build a partir do icon.jpg.
 
-- pocketdesk.ico : icone do .exe e dos atalhos (varios tamanhos)
+- poltergeist.ico : icone do .exe e dos atalhos (varios tamanhos)
 - brand.png      : versao pequena usada na bandeja e na janela (o icon.jpg
                    original tem 2,6 MB e nao vale embutir no executavel)
 """
@@ -15,7 +15,7 @@ from PIL import Image
 
 AQUI = Path(__file__).resolve().parent
 ORIGEM = AQUI.parent / "icon.jpg"
-ICONE = AQUI / "pocketdesk.ico"
+ICONE = AQUI / "poltergeist.ico"
 MARCA = AQUI / "brand.png"
 
 

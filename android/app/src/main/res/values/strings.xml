@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PocketDesk</string>
-    <string name="title">PocketDesk</string>
+    <string name="app_name">Poltergeist</string>
+    <string name="title">Poltergeist</string>
     <string name="subtitle">Controle seu PC pela rede local</string>
     <string name="host_hint">IP do PC (ex: 192.168.0.10)</string>
     <string name="port_hint">Porta</string>

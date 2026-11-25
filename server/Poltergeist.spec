@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Build do PocketDesk.exe (PyInstaller, arquivo unico, sem console).
+"""Build do Poltergeist.exe (PyInstaller, arquivo unico, sem console).
 
 Nada de segredo entra aqui: pin.txt, cert.pem, key.pem, devices.json e
-auth_state.json sao criados em %LOCALAPPDATA%\\PocketDesk na primeira execucao.
+auth_state.json sao criados em %LOCALAPPDATA%\\Poltergeist na primeira execucao.
 O dxcam fica de fora (dependencia opcional): sem ele o servidor usa GDI.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 RAIZ = Path(SPECPATH).resolve()                 # server/
 REPO = RAIZ.parent
-ICONE = RAIZ / "pocketdesk.ico"
+ICONE = RAIZ / "poltergeist.ico"
 MARCA = RAIZ / "brand.png"
 
 if not ICONE.exists() or not MARCA.exists():
@@ -47,7 +47,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="PocketDesk",
+    name="Poltergeist",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

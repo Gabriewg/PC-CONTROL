@@ -36,7 +36,7 @@ android/.idea/
 *.keystore
 *.jks
 
-# ------------------------------------------------------------------ build do PocketDesk.exe
+# ------------------------------------------------------------------ build do Poltergeist.exe
 server/build/
 server/dist/
 server/*.ico

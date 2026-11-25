@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package com.localcontrol
+package io.github.gabriewg.poltergeist
 
 import org.json.JSONObject
 import java.net.DatagramPacket
@@ -13,7 +13,7 @@ import java.net.SocketTimeoutException
 object Discovery {
 
     const val PORT = 8766
-    private const val MAGIC = "LOCALCONTROL_DISCOVER"
+    private const val MAGIC = "POLTERGEIST_DISCOVER"
 
     data class Device(val name: String, val host: String, val port: Int)
 

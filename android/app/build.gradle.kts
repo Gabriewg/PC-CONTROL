@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.localcontrol"
+    namespace = "io.github.gabriewg.poltergeist"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.localcontrol"
+        applicationId = "io.github.gabriewg.poltergeist"
         minSdk = 24
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.3.3"
+        versionCode = 8
+        versionName = "2.0.0"
     }
 
     buildTypes {

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Paleta e medidas do PocketDesk Desktop.
+"""Paleta e medidas do Poltergeist Desktop.
 
 A identidade e' preto profundo com vinho escuro: o fundo fica quase preto, os
 cartoes um tom acima e o vinho aparece so' no que importa (acao principal,

@@ -1,4 +1,4 @@
-' Inicia o servidor LocalControl junto com o Windows, sem janela de console.
+' Inicia o servidor Poltergeist junto com o Windows, sem janela de console.
 ' Nao precisa de administrador: e um atalho na pasta Inicializar do usuario.
 Option Explicit
 

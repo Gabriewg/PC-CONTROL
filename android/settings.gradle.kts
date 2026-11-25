@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LocalControl"
+rootProject.name = "Poltergeist"
 include(":app")

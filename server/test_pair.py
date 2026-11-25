@@ -78,7 +78,7 @@ async def send_msg(writer: asyncio.StreamWriter, mtype: int, obj: dict) -> None:
 
 async def open_session(port: int, client_ctx: ssl.SSLContext):
     reader, writer = await asyncio.open_connection(
-        "127.0.0.1", port, ssl=client_ctx, server_hostname="localcontrol"
+        "127.0.0.1", port, ssl=client_ctx, server_hostname="poltergeist"
     )
     mtype, payload = await recv_msg(reader)
     if mtype != MSG_CHALLENGE:
@@ -139,7 +139,7 @@ async def main() -> int:
     uri = security.pairing_uri("192.168.0.10", 8765, fp, "token-de-teste", "PC do Gabriel")
     parsed = urlparse(uri)
     query = parse_qs(parsed.query)
-    check(parsed.scheme == "localcontrol", "esquema localcontrol")
+    check(parsed.scheme == "poltergeist", "esquema poltergeist")
     check(parsed.hostname == "192.168.0.10" and parsed.port == 8765, "host e porta no link")
     check(security.fingerprint_from_url(query["fp"][0]) == fp, "fingerprint SPKI volta igual")
     check(query["t"][0] == "token-de-teste", "token no link")
