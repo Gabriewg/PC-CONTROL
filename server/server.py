@@ -108,7 +108,7 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "1.5"
+VERSION = "1.6"
 
 # Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
 # Nenhum deles vai para o Git: veja .gitignore.
@@ -122,6 +122,27 @@ DEVICES_PATH = BASE_DIR / "devices.json"
 PAIR_IMAGE_PATH = BASE_DIR / "pair.png"
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUPS = 3
+
+
+def set_data_dir(path: Path) -> None:
+    """Redireciona PIN, certificado, aparelhos e logs para outra pasta.
+
+    O .exe chama isto para usar %LOCALAPPDATA%\\PocketDesk: dentro do
+    PyInstaller o diretorio do server.py e' temporario e some a cada execucao.
+    """
+    global BASE_DIR, LOG_PATH, PIN_PATH, CERT_PATH, KEY_PATH, STATE_PATH
+    global DEVICES_PATH, PAIR_IMAGE_PATH
+    pasta = Path(path).expanduser().resolve()
+    pasta.mkdir(parents=True, exist_ok=True)
+    BASE_DIR = pasta
+    LOG_PATH = str(pasta / "server.log")
+    PIN_PATH = pasta / "pin.txt"
+    CERT_PATH = pasta / "cert.pem"
+    KEY_PATH = pasta / "key.pem"
+    STATE_PATH = pasta / "auth_state.json"
+    DEVICES_PATH = pasta / "devices.json"
+    PAIR_IMAGE_PATH = pasta / "pair.png"
+
 
 logger = logging.getLogger("localcontrol")
 
@@ -607,6 +628,7 @@ class Server:
         devices: security.DeviceStore | None = None,
         fingerprint: str = "",
         activity_cb=None,
+        ready_cb=None,
     ) -> None:
         self.args = args
         self.pin_record = pin_record
@@ -623,6 +645,7 @@ class Server:
         self.devices = devices or security.DeviceStore(DEVICES_PATH)
         self.fingerprint = fingerprint
         self.activity_cb = activity_cb
+        self.ready_cb = ready_cb
 
         self.loop: asyncio.AbstractEventLoop | None = None
         self.tray = None
@@ -695,15 +718,14 @@ class Server:
                 return ip
         return ips[0]
 
-    def show_pairing(self, open_image: bool = False) -> str:
-        """Gera um token novo e mostra o QR (console + pair.png)."""
-        if not self.fingerprint:
-            print(
-                "pareamento por QR indisponivel: o TLS esta desligado (--no-tls).\n"
-                "Ligue o TLS para o app conseguir fixar a chave do PC."
-            )
-            return ""
+    def create_pairing(self) -> tuple[str, float]:
+        """Gera um token novo e devolve (uri, expira_em) sem imprimir nada.
 
+        A janela usa este caminho; o console usa `show_pairing`, que desenha o
+        QR no terminal e salva pair.png.
+        """
+        if not self.fingerprint:
+            return "", 0.0
         # Um novo QR invalida os anteriores: se um deles vazou, deixa de valer.
         self.tokens.clear()
         item = self.tokens.create()
@@ -713,7 +735,19 @@ class Server:
         )
         self.last_pairing_uri = uri
         self.last_pairing_expires = item.expires
+        return uri, item.expires
 
+    def show_pairing(self, open_image: bool = False) -> str:
+        """Gera um token novo e mostra o QR (console + pair.png)."""
+        uri, _expires = self.create_pairing()
+        if not uri:
+            print(
+                "pareamento por QR indisponivel: o TLS esta desligado (--no-tls).\n"
+                "Ligue o TLS para o app conseguir fixar a chave do PC."
+            )
+            return ""
+
+        host = self.pairing_host()
         print()
         print("=" * 62)
         print(" PAREAMENTO POR QR")
@@ -731,6 +765,14 @@ class Server:
             except OSError as exc:
                 log(f"nao consegui abrir {PAIR_IMAGE_PATH}: {exc}")
         return uri
+
+    def session_list(self) -> list[dict]:
+        """Sessoes ativas (para a janela do PC)."""
+        agora = time.time()
+        return [
+            {"name": nome, "ip": ip, "seconds": int(max(0, agora - inicio))}
+            for nome, ip, inicio in self._sessions.values()
+        ]
 
     def print_devices(self) -> None:
         recs = self.devices.all()
@@ -776,6 +818,8 @@ class Server:
 
     def start_console(self) -> None:
         """Comandos no console: q = novo QR, d = aparelhos, x = sair."""
+        if getattr(self.args, "no_console", False):
+            return
         if sys.stdin is None or not sys.stdin.isatty():
             return
         print("Comandos: q = novo QR de pareamento | d = aparelhos | x = sair")
@@ -1220,6 +1264,11 @@ class Server:
 
         self.start_tray()
         self.start_console()
+        if self.ready_cb is not None:
+            try:
+                self.ready_cb()
+            except Exception:  # noqa: BLE001
+                pass
         if not getattr(self.args, "no_qr", False):
             self.show_pairing(open_image=getattr(self.args, "qr_open", False))
 
