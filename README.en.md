@@ -58,6 +58,12 @@ the app copies `%LOCALAPPDATA%\PocketDesk` into the new folder (PIN, certificate
 and paired devices included) and logs it. The old folder is kept as a backup;
 delete it once you are sure. `POCKETDESK_DATA_DIR` is still accepted too.
 
+If you used to run the server from Python, its data lives in `server/` (PIN,
+certificate and devices) and is separate from the executable's folder: after
+switching to `Poltergeist.exe` the app reports a different key ("Possible
+interception") and offers **Re-pair** — accept only because you made the change
+yourself.
+
 Old QR links (`localcontrol://...`) and the previous APK keep working: the app
 accepts both schemes and the server still answers the old UDP discovery magic.
 Only the new link, `poltergeist://`, is generated from now on.
@@ -146,7 +152,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── instalar-autostart.bat  # shortcut in the Windows Startup folder (legacy)
 │   ├── liberar-firewall.ps1    # opens ports 8765/TCP and 8766/UDP
 │   ├── build-exe.bat           # builds dist/Poltergeist.exe + SHA-256
-│   ├── Poltergeist.spec         # PyInstaller recipe
+│   ├── Poltergeist.spec        # PyInstaller recipe
 │   ├── gerar_icone_exe.py      # builds .ico and brand.png from icon.jpg
 │   ├── test_client.py          # headless test client (no phone needed)
 │   ├── test_pair.py            # QR pairing and device-credential tests
@@ -208,7 +214,7 @@ history). The server prints its version, IP addresses, the public-key
 fingerprint and the pairing QR:
 
 ```
-[2026-01-01 12:00:00] versao 1.6
+[2026-01-01 12:00:00] versao 2.0
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -281,7 +287,7 @@ You can also open `android/` in Android Studio and use **Build → Build APK(s)*
 ### 3. Connect
 
 **QR pairing (recommended).** With the server running, the QR appears in the
-console and is saved as `server/pair.png` (the tray menu can regenerate it). In
+window (in console mode it is also saved as `server/pair.png`). In
 the app, tap **Pair with QR Code** and point the camera — or paste the link. The
 app verifies the PC's public key, proves the token and receives a device
 credential; from then on it connects without a PIN.

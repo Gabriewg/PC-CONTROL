@@ -7,9 +7,11 @@ Write-Host "Liberando TCP $porta e UDP 8766 no firewall..." -ForegroundColor Cya
 
 netsh advfirewall firewall delete rule name="Poltergeist TCP" | Out-Null
 netsh advfirewall firewall delete rule name="Poltergeist UDP" | Out-Null
-# remove as regras do nome antigo, se existirem
+# remove as regras dos nomes antigos, se existirem
 netsh advfirewall firewall delete rule name="LocalControl TCP" | Out-Null
 netsh advfirewall firewall delete rule name="LocalControl UDP" | Out-Null
+netsh advfirewall firewall delete rule name="PocketDesk TCP" | Out-Null
+netsh advfirewall firewall delete rule name="PocketDesk UDP" | Out-Null
 
 netsh advfirewall firewall add rule name="Poltergeist TCP" dir=in action=allow protocol=TCP localport=$porta | Out-Null
 netsh advfirewall firewall add rule name="Poltergeist UDP" dir=in action=allow protocol=UDP localport=8766 | Out-Null

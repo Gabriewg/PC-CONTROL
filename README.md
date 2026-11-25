@@ -63,6 +63,11 @@ certificado e aparelhos incluídos) e registra isso no log. A pasta antiga é
 mantida como cópia de segurança; apague-a quando tiver certeza. A variável
 `POCKETDESK_DATA_DIR` também continua sendo aceita.
 
+Se você rodava pelo Python, os dados ficam em `server/` (PIN, certificado e
+aparelhos) e são independentes da pasta do executável: ao passar a usar o
+`Poltergeist.exe`, o app avisa que a chave mudou (**Possível interceptação**) e
+oferece **Re-parear** — aceite só porque a troca foi sua.
+
 Links de QR antigos (`localcontrol://...`) e o APK anterior continuam
 funcionando: o app lê os dois esquemas e o servidor responde à descoberta UDP
 antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
@@ -115,7 +120,7 @@ antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 │   ├── instalar-autostart.bat  # atalho na pasta Inicializar (legado)
 │   ├── liberar-firewall.ps1    # libera as portas 8765/TCP e 8766/UDP
 │   ├── build-exe.bat           # gera dist/Poltergeist.exe + SHA-256
-│   ├── Poltergeist.spec         # receita do PyInstaller
+│   ├── Poltergeist.spec        # receita do PyInstaller
 │   ├── gerar_icone_exe.py      # gera .ico e brand.png a partir do icon.jpg
 │   ├── test_client.py          # cliente de teste (sem celular)
 │   ├── test_pair.py            # testes do pareamento por QR e da credencial
@@ -135,7 +140,7 @@ antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 │   ├── instalar-apk.bat        # instala no celular via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
 ├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
-├── .github/workflows/build-exe.yml  # gera o Poltergeist.exe e o SHA-256
+├── .github/workflows/build-exe.yml # gera o Poltergeist.exe e o SHA-256
 ├── icon.jpg                    # imagem de origem do ícone do app
 ├── conectar-usb.bat            # configura o túnel USB (adb reverse)
 ├── SECURITY.md                 # modelo de ameaça e canal de reporte
@@ -176,7 +181,7 @@ shell). O servidor mostra a versão, os IPs e a impressão digital da chave
 pública:
 
 ```
-[2026-01-01 12:00:00] versao 1.6
+[2026-01-01 12:00:00] versao 2.0
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -336,8 +341,8 @@ O script cria `mipmap-mdpi…xxxhdpi/ic_launcher.png` (Android antigo) e
 Na primeira conexão de cada aparelho, use o QR — ele resolve o problema de
 "como confiar na chave do PC" sem comparar impressão digital à mão.
 
-1. Com o servidor rodando, o QR aparece no console e é salvo em
-   `server/pair.png` (na bandeja, use **Pareamento por QR**).
+1. Com o servidor rodando, o QR aparece na janela (no modo console, também é
+   salvo em `server/pair.png`).
 2. No app, toque em **Parear com QR Code** e aponte a câmera. Se preferir, use
    **colar o link** no diálogo de ajuda. Se o link for aberto pela câmera do
    sistema (fora do app), o app mostra PC, porta e chave e pede confirmação
