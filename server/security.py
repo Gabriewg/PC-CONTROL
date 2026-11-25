@@ -171,6 +171,238 @@ def verify_mac(record: PinRecord, nonce: bytes, mac_b64: str) -> bool:
     return hmac.compare_digest(esperado, recebido)
 
 
+# ------------------------------------------------------------------ pareamento
+
+# O QR carrega um token de uso unico e curta duracao. Ele NAO e o PIN: serve
+# apenas para o primeiro pareamento. Depois disso o servidor cria uma chave
+# exclusiva do aparelho (device key), que o app usa nas conexoes seguintes.
+PAIR_TOKEN_BYTES = 32
+PAIR_TTL = 180.0
+PAIR_TTL_MIN = 30.0
+PAIR_TTL_MAX = 600.0
+DEVICE_KEY_BYTES = 32
+DEVICE_ID_BYTES = 8
+DEVICES_VERSION = 1
+
+
+def b64u(raw: bytes) -> str:
+    """base64 URL-safe sem padding (cabe em query string sem escape)."""
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def b64u_decode(text: str) -> bytes:
+    padding = "=" * (-len(text) % 4)
+    return base64.urlsafe_b64decode(text + padding)
+
+
+def token_id(token: str) -> str:
+    """Identificador publico do token (nunca o token em si)."""
+    return hashlib.sha256(token.encode("ascii")).hexdigest()[:32]
+
+
+def fingerprint_to_url(fingerprint_b64: str) -> str:
+    return b64u(b64d(fingerprint_b64))
+
+
+def fingerprint_from_url(value: str) -> str:
+    return b64e(b64u_decode(value))
+
+
+def pairing_uri(
+    host: str, port: int, fingerprint_b64: str, token: str, name: str = ""
+) -> str:
+    """Monta o link do QR: localcontrol://host:porta?fp=...&t=...&n=..."""
+    from urllib.parse import urlencode
+
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # IPv6 literal
+    query = urlencode(
+        {
+            "v": 1,
+            "fp": fingerprint_to_url(fingerprint_b64),
+            "t": token,
+            "n": name,
+        }
+    )
+    return f"localcontrol://{host}:{int(port)}?{query}"
+
+
+@dataclass
+class PairingToken:
+    token: str
+    pid: str
+    created: float
+    expires: float
+    used: bool = False
+
+
+class PairingTokens:
+    """Tokens de pareamento em memoria, de uso unico e com expiracao curta.
+
+    Nada e gravado em disco: reiniciar o servidor invalida todos os QR antigos.
+    """
+
+    def __init__(self, ttl: float = PAIR_TTL, clock=time.time) -> None:
+        self.ttl = max(PAIR_TTL_MIN, min(PAIR_TTL_MAX, float(ttl)))
+        self._clock = clock
+        self._items: dict[str, PairingToken] = {}
+
+    def _prune(self, now: float) -> None:
+        for pid in [p for p, item in self._items.items() if item.used or item.expires <= now]:
+            del self._items[pid]
+
+    def create(self) -> PairingToken:
+        now = self._clock()
+        self._prune(now)
+        token = secrets.token_urlsafe(PAIR_TOKEN_BYTES)
+        item = PairingToken(
+            token=token,
+            pid=token_id(token),
+            created=now,
+            expires=now + self.ttl,
+        )
+        self._items[item.pid] = item
+        return item
+
+    def verify_and_consume(self, pid: str, nonce: bytes, mac_b64: str) -> bool:
+        """Confere HMAC(token, nonce) e invalida o token na mesma operacao."""
+        now = self._clock()
+        self._prune(now)
+        item = self._items.get(pid)
+        if item is None or item.used or item.expires <= now:
+            return False
+        try:
+            recebido = b64d(mac_b64)
+        except (ValueError, TypeError):
+            return False
+        esperado = hmac.new(item.token.encode("ascii"), nonce, hashlib.sha256).digest()
+        if not hmac.compare_digest(esperado, recebido):
+            return False
+        item.used = True
+        del self._items[pid]
+        return True
+
+    def active_count(self) -> int:
+        self._prune(self._clock())
+        return len(self._items)
+
+    def clear(self) -> None:
+        self._items.clear()
+
+
+@dataclass
+class DeviceRecord:
+    id: str
+    name: str
+    key: bytes
+    created: int = 0
+    last_seen: int = 0
+
+
+class DeviceStore:
+    """Aparelhos pareados: chave exclusiva por aparelho, revogavel.
+
+    O arquivo guarda a chave (como um arquivo de senhas) com permissao restrita
+    ao usuario. Quem tiver acesso a ele ja controla o PC localmente.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._items: dict[str, DeviceRecord] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or data.get("v") != DEVICES_VERSION:
+                return
+            for did, entry in (data.get("devices") or {}).items():
+                if not isinstance(entry, dict):
+                    continue
+                key = b64d(entry.get("key", ""))
+                if len(key) != DEVICE_KEY_BYTES:
+                    continue
+                self._items[str(did)] = DeviceRecord(
+                    id=str(did),
+                    name=str(entry.get("name", "celular"))[:32],
+                    key=key,
+                    created=int(entry.get("created", 0)),
+                    last_seen=int(entry.get("last_seen", 0)),
+                )
+        except (OSError, ValueError, TypeError):
+            # arquivo corrompido nao pode impedir o servidor de subir
+            self._items = {}
+
+    def _save(self) -> None:
+        data = {
+            "v": DEVICES_VERSION,
+            "devices": {
+                rec.id: {
+                    "name": rec.name,
+                    "key": b64e(rec.key),
+                    "created": rec.created,
+                    "last_seen": rec.last_seen,
+                }
+                for rec in self._items.values()
+            },
+        }
+        tmp = self.path.with_suffix(".tmp")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            os.replace(tmp, self.path)
+            restrict_permissions(self.path)
+        except OSError:
+            pass
+
+    def add(self, name: str) -> DeviceRecord:
+        agora = int(time.time())
+        rec = DeviceRecord(
+            id=secrets.token_hex(DEVICE_ID_BYTES),
+            name=(name or "celular")[:32],
+            key=secrets.token_bytes(DEVICE_KEY_BYTES),
+            created=agora,
+            last_seen=agora,
+        )
+        self._items[rec.id] = rec
+        self._save()
+        return rec
+
+    def get(self, device_id: str) -> DeviceRecord | None:
+        return self._items.get(device_id)
+
+    def verify(self, device_id: str, nonce: bytes, mac_b64: str) -> bool:
+        rec = self._items.get(device_id)
+        if rec is None:
+            return False
+        try:
+            recebido = b64d(mac_b64)
+        except (ValueError, TypeError):
+            return False
+        esperado = hmac.new(rec.key, nonce, hashlib.sha256).digest()
+        if not hmac.compare_digest(esperado, recebido):
+            return False
+        rec.last_seen = int(time.time())
+        self._save()
+        return True
+
+    def remove(self, device_id: str) -> bool:
+        if device_id not in self._items:
+            return False
+        del self._items[device_id]
+        self._save()
+        return True
+
+    def clear(self) -> None:
+        self._items.clear()
+        self._save()
+
+    def all(self) -> list[DeviceRecord]:
+        return sorted(self._items.values(), key=lambda r: r.created)
+
+
 # ------------------------------------------------------------------ rate limit
 
 

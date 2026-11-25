@@ -11,8 +11,8 @@ android {
         applicationId = "com.localcontrol"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildTypes {
@@ -38,5 +38,6 @@ android {
 }
 
 dependencies {
-    // Nenhuma dependencia externa: o app usa apenas APIs do proprio Android.
+    // Leitor de QR Code (Camera2 + ZXing). O resto do app usa so APIs do Android.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

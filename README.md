@@ -26,22 +26,31 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 - Mouse (absoluto e touchpad), teclado, rolagem, clique direito, arrastar e zoom.
 - Suporte a **múltiplos monitores**.
 - **Descoberta automática** do PC na rede local (UDP broadcast).
+- **Pareamento por QR Code** com token de uso único (2–5 min): o app lê o QR,
+  fixa a chave do PC e recebe uma credencial exclusiva do aparelho — sem digitar
+  PIN e sem comparar impressão digital à mão.
+- **Credencial por aparelho** (`devices.json`): as conexões seguintes não pedem
+  PIN; cada aparelho pode ser revogado no PC.
 - **TLS 1.3** com certificado ECDSA P-256 e *pinning* da chave pública no app.
 - **PIN por desafio-resposta**: o PIN nunca trafega; o app assina um nonce com
   HMAC-SHA256 e o servidor guarda apenas a chave derivada (PBKDF2).
+- **Aviso de conexão ativa no PC**: ícone de bandeja verde/vermelho, notificação
+  e log `>>> CONEXAO ATIVA` quando alguém conecta.
 - **Limite de tentativas** por IP e global, com atraso progressivo e bloqueio
   persistente entre reinícios.
 - Controle de fluxo: em rede ruim o servidor **descarta quadros** em vez de
   acumular atraso.
-- App sem dependências externas (usa apenas APIs do Android).
+- App praticamente sem dependências externas: só o ZXing para ler o QR Code; o
+  resto usa APIs do Android.
 
 ## Estrutura do repositório
 
 ```
 .
 ├── server/                     # servidor Python (Windows)
-│   ├── server.py               # TCP/TLS, captura, protocolo e descoberta UDP
-│   ├── security.py             # PIN (PBKDF2), desafio HMAC, rate limit e TLS
+│   ├── server.py               # TCP/TLS, captura, protocolo, descoberta e pareamento
+│   ├── security.py             # PIN (PBKDF2), desafio HMAC, tokens, aparelhos e TLS
+│   ├── tray.py                 # ícone de bandeja e aviso de conexão ativa
 │   ├── wininput.py             # injeção de mouse/teclado via SendInput
 │   ├── iniciar.bat             # cria a venv, instala deps e roda o servidor
 │   ├── definir-pin.bat         # define/troca o PIN (pede no terminal)
@@ -50,12 +59,14 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 │   ├── instalar-autostart.bat  # atalho na pasta Inicializar do Windows
 │   ├── liberar-firewall.ps1    # libera as portas 8765/TCP e 8766/UDP
 │   ├── test_client.py          # cliente de teste (sem celular)
+│   ├── test_pair.py            # testes do pareamento por QR e da credencial
 │   ├── bench*.py               # benchmarks de captura/codificação
 │   └── requirements.txt
 ├── android/                    # app Android (Kotlin)
 │   ├── app/src/main/java/com/localcontrol/
 │   │   ├── MainActivity.kt     # interface, perfis e pareamento/MITM
 │   │   ├── RemoteClient.kt     # TLS, handshake e recebimento do vídeo
+│   │   ├── Pairing.kt          # parser do link localcontrol:// e token
 │   │   ├── LocalCrypto.kt      # PBKDF2, HMAC e impressão digital SPKI
 │   │   ├── PinningTrustManager.kt # confia só na chave pública pareada
 │   │   ├── RemoteView.kt       # desenho do vídeo e gestos
@@ -64,8 +75,10 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 │   ├── build-apk.bat           # compila o APK debug
 │   ├── instalar-apk.bat        # instala no celular via adb
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
+├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
 ├── icon.jpg                     # imagem de origem do ícone do app
 ├── conectar-usb.bat            # configura o túnel USB (adb reverse)
+├── SECURITY.md                 # modelo de ameaça e canal de reporte
 ├── CONTRIBUTING.md
 └── LICENSE
 ```
@@ -96,7 +109,7 @@ O `--set-pin` pede o PIN duas vezes (não fica no histórico do shell). O servid
 mostra a versão, os IPs e a impressão digital da chave pública:
 
 ```
-[2026-01-01 12:00:00] versao 1.3
+[2026-01-01 12:00:00] versao 1.4
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
@@ -104,8 +117,10 @@ mostra a versão, os IPs e a impressão digital da chave pública:
 [2026-01-01 12:00:00] pronto. Abra o app no celular e conecte.
 ```
 
-A impressão digital é da **chave pública (SPKI)**, não do certificado inteiro.
-Se você renovar o certificado mantendo o `key.pem`, o app não precisa re-parear.
+Na primeira tela também aparece o **QR de pareamento** (veja
+[Pareamento por QR](#pareamento-por-qr-recomendado)). A impressão digital é da **chave
+pública (SPKI)**, não do certificado inteiro. Se você renovar o certificado
+mantendo o `key.pem`, o app não precisa re-parear.
 
 ### Opções
 
@@ -122,6 +137,11 @@ Se você renovar o certificado mantendo o `key.pem`, o app não precisa re-parea
 | `--quality` | `70` | Qualidade JPEG inicial |
 | `--fps` | `30` | FPS inicial |
 | `--no-gpu` | — | Força captura GDI (`mss`) em vez de DXGI |
+| `--pair-ttl` | `180` | Validade do QR em segundos (30 a 600) |
+| `--no-qr` | — | Não mostra o QR ao iniciar (use `q` no console) |
+| `--qr-open` | — | Abre `pair.png` no visualizador ao iniciar |
+| `--no-tray` | — | Não usa ícone de bandeja (aviso só no console) |
+| `--forget-devices` | — | Revoga todos os aparelhos pareados e sai |
 
 ```powershell
 python server.py --port 8765 --width 1600 --quality 70 --fps 30
@@ -149,6 +169,8 @@ O que fica na pasta `server/` (tudo ignorado pelo Git):
 | `cert.pem` | certificado autoassinado ECDSA P-256, validade de 5 anos |
 | `key.pem` | chave privada (permissões restritas à sua conta) |
 | `auth_state.json` | tentativas/bloqueios de PIN (persistem entre reinícios) |
+| `devices.json` | credenciais dos aparelhos pareados (ID + chave de 32 bytes) |
+| `pair.png` | último QR de pareamento gerado (apague depois de usar) |
 | `server.log` | log rotativo, com data/hora e IP de cada falha |
 
 Política do PIN:
@@ -158,8 +180,9 @@ Política do PIN:
 - **sem TLS** (`--no-tls`): mínimo de **8 caracteres**. O servidor recusa subir
   com um PIN curto nesse modo.
 
-Depois de trocar o PIN, reinicie o servidor e use o mesmo PIN no app (o app
-pergunta a digital do PC só no primeiro pareamento).
+Depois de trocar o PIN, reinicie o servidor. Aparelhos já pareados continuam
+conectando pela credencial própria; para uma conexão manual nova, use o mesmo
+PIN no app (o app pergunta a digital do PC só no primeiro pareamento).
 
 ### Firewall
 
@@ -234,7 +257,52 @@ O script cria `mipmap-mdpi…xxxhdpi/ic_launcher.png` (Android antigo) e
 
 ## 3. Conectar
 
-### USB (recomendado para começar)
+### Pareamento por QR (recomendado)
+
+Na primeira conexão de cada aparelho, use o QR — ele resolve o problema de
+"como confiar na chave do PC" sem comparar impressão digital à mão.
+
+1. Com o servidor rodando, o QR aparece no console e é salvo em
+   `server/pair.png` (na bandeja, use **Pareamento por QR**).
+2. No app, toque em **Parear com QR Code** e aponte a câmera. Se preferir, use
+   **colar o link** no diálogo de ajuda. Se o link for aberto pela câmera do
+   sistema (fora do app), o app mostra PC, porta e chave e pede confirmação
+   antes de conectar.
+3. O app confere a chave pública do PC, envia a prova do token e recebe uma
+   **credencial exclusiva do aparelho**. A partir daí ele conecta sem PIN.
+
+O QR vale por **180 segundos** (ajuste com `--pair-ttl`, de 30 a 600) e serve
+**uma única vez**. O token não é o PIN: ele fica só na memória do servidor,
+expira e é consumido no primeiro pareamento. O link tem o formato:
+
+```
+localcontrol://192.168.0.10:8765?v=1&fp=<SPKI base64url>&t=<token>&n=<PC>
+```
+
+No console do servidor:
+
+| Tecla | Ação |
+|---|---|
+| `q` | Gera um novo QR (invalida o anterior) |
+| `d` | Lista os aparelhos pareados |
+| `x` | Encerra o servidor |
+
+Para revogar aparelhos, use **Esquecer aparelhos** na bandeja ou rode o servidor
+com `--forget-devices`. A revogação impede novas conexões; uma sessão que já
+está aberta continua até ser encerrada no app (ou até o servidor parar).
+
+Na bandeja, o menu tem as mesmas ações. O ícone fica **vermelho** com conexão
+ativa (alerta de que alguém está controlando o PC) e **verde** sem conexão; ao
+conectar, aparece uma notificação com o nome do aparelho e o IP.
+
+> Trate o QR como uma senha temporária: não o mostre em prints, transmissões ou
+> telas compartilhadas. Se ele vazar antes de você usar, gere outro com `q` e,
+> por precaução, use **Esquecer aparelhos** no PC.
+
+O pareamento por QR exige TLS (o padrão). Com `--no-tls` ele fica indisponível;
+nesse caso use o PIN manualmente.
+
+### USB (rápido e estável)
 
 1. No celular: **Opções do desenvolvedor → Depuração USB** ligada.
 2. Conecte o cabo e aceite a autorização que aparece na tela do celular.
@@ -277,7 +345,8 @@ Dicas:
 
 - o PC precisa estar **ligado e sem dormir** (Painel de Controle → Energia);
 - o upload da sua internet limita o FPS (10 Mbps ≈ 10–15 fps no preset Médio);
-- o PIN é obrigatório (defina com `definir-pin.bat`) e nunca trafega pela rede;
+- o PIN (ou o pareamento por QR) é obrigatório: o app usa a credencial do
+  aparelho ou o PIN, e o PIN nunca trafega pela rede;
 - o Tailscale criptografa o caminho, e o **TLS 1.3** do projeto protege a
   conexão mesmo na rede local. Ainda assim, **não abra a porta 8765 no
   roteador**: o servidor foi feito para LAN/Tailscale, não para a internet.
@@ -314,25 +383,31 @@ Toda mensagem nos dois sentidos:
 | `0x01` VIDEO | servidor → app | `[2 bytes cursorX][2 bytes cursorY][JPEG]` |
 | `0x02` SCREEN | servidor → app | JSON `{name, version, w, h, monitor, monitors, tls}` |
 | `0x03` CURSOR | servidor → app | `[2 bytes cursorX][2 bytes cursorY]` (só o cursor) |
-| `0x10` HELLO | app → servidor | JSON `{v:2, name, width, quality, fps, mac}` |
+| `0x10` HELLO | app → servidor | JSON `{v:3, name, width, quality, fps, mac}` + `pid` (QR) ou `device` (aparelho) |
 | `0x11` INPUT | app → servidor | JSON do evento |
 | `0x12` INFO | servidor → app | JSON `{error}` |
 | `0x13/0x14` PING/PONG | ambos | JSON `{ts}` (latência) |
 | `0x15` CHALLENGE | servidor → app | JSON `{v, kdf, iter, salt, nonce, auth}` |
+| `0x16` PAIR_OK | servidor → app | JSON `{v, id, key, name}` (credencial do aparelho, só no pareamento) |
 
-### Handshake (PIN por desafio-resposta)
+### Handshake (PIN por desafio-resposta e credencial)
 
 1. O app abre **TLS 1.3** e confere a chave pública (SPKI) do servidor com a que
    foi salva no pareamento.
 2. O servidor envia `CHALLENGE` com um **nonce novo de 32 bytes**.
-3. O app calcula `chave = PBKDF2-HMAC-SHA256(pin, salt, 210000, 32)` e responde
-   `HELLO {mac: base64(HMAC-SHA256(chave, nonce))}`.
+3. O app responde `HELLO` com um dos três modos:
+   - **PIN**: `mac = HMAC-SHA256(PBKDF2(pin, salt, 210000, 32), nonce)`;
+   - **QR**: `pid = SHA-256(token)[:32]` e `mac = HMAC-SHA256(token, nonce)`;
+   - **aparelho**: `device = <id>` e `mac = HMAC-SHA256(device_key, nonce)`.
 4. O servidor confere com `hmac.compare_digest`. O PIN **nunca sai do aparelho**
    e o MAC não pode ser reaproveitado, porque o nonce muda a cada conexão.
+5. No modo QR, o servidor consome o token atomicamente, cria a credencial do
+   aparelho e a envia em `PAIR_OK`. O app só a grava depois de conferir que o
+   PC provou ter a chave do QR.
 
-O `salt` e o `nonce` não são segredos: quem os vê não consegue derivar a chave
-sem o PIN. Cada falha é registrada no log com data e IP, e tentativas repetidas
-sofrem atraso progressivo e bloqueio por IP e global.
+O `salt`, o `nonce` e o `pid` não são segredos: quem os vê não consegue derivar a
+chave sem o PIN/token. Cada falha é registrada no log com data e IP, e tentativas
+repetidas sofrem atraso progressivo e bloqueio por IP e global.
 
 Eventos de entrada:
 
@@ -355,8 +430,16 @@ desconectar volta para a rotação normal.
 
 ## 6. Testar sem o celular
 
+Testes do pareamento por QR (não tocam no servidor real):
+
 ```powershell
 cd server
+.venv\Scripts\python.exe test_pair.py
+```
+
+Cliente de vídeo, sem precisar do celular:
+
+```powershell
 .venv\Scripts\python.exe test_client.py 127.0.0.1 8765 40 SEU_PIN
 ```
 
@@ -386,7 +469,8 @@ teste pode levar ~40 s; mexendo em uma janela ele termina bem mais rápido.
 
 ## 7. Segurança
 
-O projeto agora usa **TLS 1.3 + PIN por desafio-resposta** por padrão:
+O projeto usa **TLS 1.3**, **PIN por desafio-resposta** e **pareamento por QR
+com token de uso único** por padrão:
 
 - **Transporte criptografado.** Certificado ECDSA P-256 autoassinado, gerado na
   primeira execução, com validade de 5 anos. O app confia na **chave pública
@@ -395,23 +479,39 @@ O projeto agora usa **TLS 1.3 + PIN por desafio-resposta** por padrão:
 - **PIN nunca trafega.** O servidor manda um nonce novo por conexão; o app
   responde `HMAC-SHA256(PBKDF2(pin), nonce)`. O `pin.txt` guarda apenas o
   resultado da KDF (salt + chave), nunca o PIN.
+- **QR de uso único.** O token do QR vale 180 s (30–600 s), fica só na memória e
+  é consumido no primeiro pareamento. O app envia `pid = SHA-256(token)[:32]` e
+  `HMAC-SHA256(token, nonce)`; o token em si nunca trafega.
+- **Credencial por aparelho.** Depois do pareamento, cada celular recebe um
+  `device_id` e uma `device_key` de 32 bytes, guardados em `devices.json` e nas
+  preferências do app. Revogue com `--forget-devices` ou no menu da bandeja; a
+  revogação bloqueia novas conexões, mas não derruba uma sessão já aberta.
 - **Sem MITM silencioso.** Se a chave do PC mudar, o app mostra as digitais
   antiga e nova, **bloqueia** a conexão e só permite re-parear por ação
   explícita do usuário. Não existe "continuar mesmo assim".
+- **Aviso de conexão ativa.** A bandeja fica vermelha, mostra notificação e o
+  log registra `>>> CONEXAO ATIVA` com nome do aparelho e IP.
 - **Força bruta limitada.** Atraso progressivo (1 s, 2 s, 4 s…), bloqueio por IP
   e global (útil no Tailscale, onde cada aparelho tem um IP), persistente entre
   reinícios, e log de cada falha com data/IP.
 - **Mensagens limitadas.** O servidor recusa qualquer mensagem do app acima de
   64 KB (o servidor é quem envia os JPEGs) e encerra conexões que não mandam o
   `HELLO` em 5 s.
-- **Chave privada protegida.** `key.pem` tem permissões restritas à sua conta e
-  `*.pem`, `*.key`, `pin.txt`, `auth_state.json` e `*.log` estão no `.gitignore`.
-  **Nunca comite** esses arquivos: vazar `key.pem` anula o TLS.
+- **Chaves protegidas.** `key.pem`, `pin.txt` e `devices.json` têm permissões
+  restritas à sua conta e estão no `.gitignore`, junto com `pair.png`,
+  `auth_state.json` e `*.log`. **Nunca comite** esses arquivos: vazar `key.pem`
+  anula o TLS e vazar `devices.json` dá acesso aos aparelhos pareados.
 
 O servidor dá **controle total** do PC a quem autenticar. Rode-o com uma conta de
 usuário comum e não abra a porta 8765 no roteador — para acesso fora de casa use
 **Tailscale** (ou outra VPN). O `--no-tls` existe só para diagnóstico e exige PIN
 de 8+ caracteres; não use em rede não confiável.
+
+O modelo de ameaça completo — o que o projeto protege, o que **não** protege e o
+que está fora do escopo — está em [SECURITY.md](SECURITY.md). Para relatar uma
+vulnerabilidade, use o
+[Security Advisory privado](https://github.com/Gabriewg/PC-CONTROL/security/advisories/new);
+não abra issue pública.
 
 O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
 instalar por sideload, mas não para a Play Store). Para publicar oficialmente,
@@ -435,6 +535,11 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 | "autenticacao falhou" | O PIN do app é diferente do PC. Rode `definir-pin.bat` e use o mesmo PIN |
 | "muitas tentativas de PIN" | Bloqueio após falhas. Espere o tempo indicado; com o servidor parado, apague `server/auth_state.json` para zerar |
 | "A chave do PC mudou" | O `cert.pem`/`key.pem` foi regenerado. Confira a digital no PC e só re-pareie se foi você |
+| "QR inválido ou incompleto" | Link truncado, QR vencido ou de outra versão. Gere outro com `q` no console e leia de novo |
+| "pareamento invalido ou expirado" | O token já foi usado ou passou do `--pair-ttl`. Gere um novo QR; se persistir, veja o relógio do PC |
+| "aparelho nao reconhecido" | O aparelho foi revogado (`--forget-devices` ou bandeja) ou o `devices.json` foi apagado. Pareie de novo |
+| Câmera não abre | Permissão de câmera negada ou aparelho sem câmera. Use **colar o link** no diálogo de pareamento |
+| Bandeja não aparece | `pystray`/`Pillow` ausentes ou `--no-tray`. O aviso de conexão continua no console e no log |
 | "TLS 1.3 exige Android 10+" | Aparelho antigo. O TLS 1.3 do app precisa de Android 10 (API 29) ou mais novo |
 | "o PC nao aceitou TLS 1.3" | O servidor está com `--no-tls` ou é uma versão antiga. Rode o `server.py` atualizado, sem `--no-tls` |
 
@@ -446,13 +551,13 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 - [ ] Atalhos personalizados e macros
 - [x] TLS 1.3 com certificado local e pinning da chave pública
 - [x] PIN por desafio-resposta + rate limit persistente
+- [x] Pareamento por QR Code com token de uso único e credencial por aparelho
 - [ ] Servidor empacotado como `.exe` (PyInstaller), sem precisar de Python
 - [ ] Conexão sem digitar IP (fallback entre últimos endereços, MagicDNS e LAN)
-- [ ] Pareamento por QR Code (`localcontrol://host:porta?pin=...`)
 
-### TLS e proteção do PIN (implementado)
+### TLS, PIN e pareamento (implementado)
 
-**Servidor (`server/security.py` + `server/server.py`)**
+**Servidor (`server/security.py` + `server/server.py` + `server/tray.py`)**
 
 - `pin.txt` guarda `{v, kdf, iterations, salt, key, requires_tls, created}`; a
   chave é PBKDF2-HMAC-SHA256 com 210 mil iterações e salt de 16 bytes. O PIN
@@ -460,6 +565,11 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
 - Cada conexão recebe um nonce de 32 bytes (`0x15 CHALLENGE`); o `HELLO` traz
   apenas `mac = HMAC-SHA256(chave, nonce)`, conferido com
   `hmac.compare_digest`.
+- `PairingTokens` mantém tokens em memória (32 bytes, TTL padrão 180 s, faixa
+  30–600 s, uso único). `verify_and_consume` confere o HMAC e apaga o token na
+  mesma operação.
+- `DeviceStore` grava `devices.json` com `device_id` (16 hex) e `device_key`
+  (32 bytes) por aparelho, em escrita atômica e com ACL restrita.
 - `cert.pem`/`key.pem` são gerados na primeira execução (ECDSA P-256, 5 anos) e
   `key.pem` recebe ACL restrita no Windows. A impressão digital exibida é a
   SHA-256 da **SPKI**.
@@ -470,25 +580,33 @@ gere uma keystore própria e configure o `signingConfig` do build de release.
   vai para o log com data e IP.
 - Mensagens do app limitadas a 64 KB **antes** de ler o corpo; o `HELLO` tem
   5 s para chegar.
+- QR desenhado no console com `qrcode`, salvo em `pair.png` e também acessível
+  pela bandeja (`pystray` + Pillow), que mostra conexão ativa e notifica.
 
-**App (`RemoteClient.kt`, `LocalCrypto.kt`, `PinningTrustManager.kt`)**
+**App (`RemoteClient.kt`, `LocalCrypto.kt`, `PinningTrustManager.kt`, `Pairing.kt`)**
 
 - `SSLSocket` com `TLSv1.3` e um `X509TrustManager` que compara a SPKI com a
   salva em `spki_casa`/`spki_fora`; a verificação de hostname não é desligada
   globalmente.
-- No primeiro pareamento, o app lê a digital, mostra um diálogo e só conecta
-  depois da confirmação do usuário.
-- Digital diferente → `PinningException` → diálogo de **possível interceptação**
-  com as digitais antiga/nova, conexão bloqueada e re-pareamento só por ação
+- `Pairing.kt` lê `localcontrol://host:porta?fp=...&t=...`, valida o token e
+  converte a SPKI base64url. A câmera usa ZXing Android Embedded; sem câmera,
+  o link pode ser colado.
+- `HELLO v3` escolhe o modo: token de pareamento (`pid` + HMAC do token),
+  credencial do aparelho (`device` + HMAC da device key) ou PIN.
+- `PAIR_OK` só é gravado depois que o TLS já provou a chave do QR; o app salva
+  SPKI + credencial juntos. Digital diferente → `PinningException` → diálogo de
+  **possível interceptação**, conexão bloqueada e re-pareamento só por ação
   explícita.
 - PBKDF2-HMAC-SHA256 implementado à mão (funciona na API 24) e conferido contra
   vetores públicos (`password`/`salt`, 1 e 4096 iterações) e contra o
   `hashlib` do Python.
 
-Critérios de aceite verificados com `server/test_client.py` e testes de
-integração: PIN correto conecta; PIN errado, replay de MAC e cabeçalho de 4 GB
-são recusados; `HELLO` pendurado cai em 5 s; bloqueio por IP persiste após
-reiniciar; `--no-tls` recusa PIN curto e aceita PIN de 8+.
+Critérios de aceite verificados com `server/test_pair.py`,
+`server/test_client.py` e testes de integração: PIN correto conecta; PIN errado,
+replay de MAC e cabeçalho de 4 GB são recusados; `HELLO` pendurado cai em 5 s;
+bloqueio por IP persiste após reiniciar; `--no-tls` recusa PIN curto e aceita PIN
+de 8+; QR pareia uma vez, token expirado/reutilizado é recusado, MAC errado não
+consome o token e a credencial do aparelho reconecta sem PIN.
 
 ## 10. Contribuindo
 

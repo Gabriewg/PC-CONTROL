@@ -131,6 +131,21 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/pairBtn"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_btn"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:text="@string/pair_qr"
+                    android:textColor="@color/text"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
                     android:id="@+id/scanBtn"
                     android:layout_width="match_parent"
                     android:layout_height="46dp"
@@ -143,6 +158,20 @@
                     android:text="@string/scan"
                     android:textColor="@color/text"
                     android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/forgetBtn"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:text="@string/forget_pc"
+                    android:textColor="@color/muted"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <TextView

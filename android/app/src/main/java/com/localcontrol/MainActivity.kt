@@ -1,14 +1,19 @@
 package com.localcontrol
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.view.View
 import android.view.WindowManager
@@ -17,6 +22,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.google.zxing.integration.android.IntentIntegrator
 import org.json.JSONObject
 
 class MainActivity : Activity(), RemoteView.Listener {
@@ -39,6 +45,8 @@ class MainActivity : Activity(), RemoteView.Listener {
     private lateinit var pinInput: EditText
     private lateinit var connectBtn: TextView
     private lateinit var scanBtn: TextView
+    private lateinit var pairBtn: TextView
+    private lateinit var forgetBtn: TextView
     private lateinit var connectStatus: TextView
     private lateinit var profileHomeBtn: TextView
     private lateinit var profileAwayBtn: TextView
@@ -70,6 +78,8 @@ class MainActivity : Activity(), RemoteView.Listener {
     private var latencyMs = 0
     private var fpsNow = 0
     private var deviceName = ""
+    private var pendingPair: Pairing.Info? = null
+    private val REQ_CAMERA = 1001
 
     private val sticky = LinkedHashSet<String>()
     private val modButtons = HashMap<String, TextView>()
@@ -115,6 +125,8 @@ class MainActivity : Activity(), RemoteView.Listener {
 
         connectBtn.setOnClickListener { doConnect() }
         scanBtn.setOnClickListener { scanNetwork() }
+        pairBtn.setOnClickListener { startQrScan() }
+        forgetBtn.setOnClickListener { forgetPc() }
         profileHomeBtn.setOnClickListener { switchProfile(0) }
         profileAwayBtn.setOnClickListener { switchProfile(1) }
         closeBtn.setOnClickListener { disconnect() }
@@ -128,6 +140,9 @@ class MainActivity : Activity(), RemoteView.Listener {
 
         setupKeyboard()
         buildKeys()
+        // Um link recebido enquanto o app estava fechado so deve ser tratado na
+        // criacao inicial, nao de novo depois de recriar a activity.
+        if (savedInstanceState == null) handleIntent(intent)
     }
 
     private fun bindViews() {
@@ -138,6 +153,8 @@ class MainActivity : Activity(), RemoteView.Listener {
         pinInput = findViewById(R.id.pinInput)
         connectBtn = findViewById(R.id.connectBtn)
         scanBtn = findViewById(R.id.scanBtn)
+        pairBtn = findViewById(R.id.pairBtn)
+        forgetBtn = findViewById(R.id.forgetBtn)
         connectStatus = findViewById(R.id.connectStatus)
         profileHomeBtn = findViewById(R.id.profileHomeBtn)
         profileAwayBtn = findViewById(R.id.profileAwayBtn)
@@ -173,6 +190,188 @@ class MainActivity : Activity(), RemoteView.Listener {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    // ------------------------------------------------------------ pareamento por QR
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val raw = intent.data?.toString() ?: return
+        val info = Pairing.parse(raw)
+        if (info == null) {
+            toast("QR inválido ou incompleto")
+            showPairHelp(raw)
+            return
+        }
+        // Um link pode vir de qualquer app/navegador, não só da câmera. Confirme
+        // antes de conectar: o QR lido dentro do app continua automático.
+        AlertDialog.Builder(this)
+            .setTitle("Abrir link de pareamento?")
+            .setMessage(
+                "PC: ${info.name.ifEmpty { info.host }} (${info.host}:${info.port})\n\n" +
+                    "Chave: " + LocalCrypto.formatFingerprint(info.fingerprint) + "\n\n" +
+                    "Só continue se este link foi exibido no PC que você quer controlar."
+            )
+            .setPositiveButton("Parear") { _, _ -> handlePairUri(raw) }
+            .setNegativeButton("Cancelar", null)
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun startQrScan() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+            return
+        }
+        launchScanner()
+    }
+
+    private fun launchScanner() {
+        try {
+            IntentIntegrator(this)
+                .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                .setPrompt("Aponte para o QR exibido no PC")
+                .setBeepEnabled(false)
+                .setOrientationLocked(false)
+                .initiateScan()
+        } catch (_: Exception) {
+            showPairHelp(null)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_CAMERA) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            launchScanner()
+        } else {
+            toast("Sem permissão de câmera: cole o link do QR")
+            showPairHelp(null)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (result != null) {
+            val contents = result.contents
+            if (contents.isNullOrBlank()) {
+                toast("Leitura cancelada")
+            } else {
+                handlePairUri(contents)
+            }
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    private fun handlePairUri(raw: String) {
+        val info = Pairing.parse(raw)
+        if (info == null) {
+            toast("QR inválido ou incompleto")
+            showPairHelp(raw)
+            return
+        }
+        if (client != null || connecting) {
+            toast("Desconecte antes de parear outro PC")
+            return
+        }
+
+        // QR com IP 100.x e' Tailscale; o resto e' a rede local.
+        val novo = if (info.host.startsWith("100.")) 1 else 0
+        if (novo != profile) {
+            saveProfile()
+            profile = novo
+            prefs.edit().putInt("perfil", novo).apply()
+            updateProfileButtons()
+        }
+
+        hostInput.setText(info.host)
+        portInput.setText(info.port.toString())
+        pinInput.setText("")
+        saveProfile()
+        pendingPair = info
+        connectStatus.text = "QR lido: pareando com ${info.name.ifEmpty { info.host }}…"
+        doPairing(info)
+    }
+
+    private fun doPairing(info: Pairing.Info) {
+        if (client != null || connecting) return
+        connecting = true
+        connectBtn.isEnabled = false
+        pairBtn.isEnabled = false
+        startClient(
+            host = info.host,
+            port = info.port,
+            pin = null,
+            preset = presets[presetIndex],
+            fingerprint = info.fingerprint,
+            pairToken = info.token
+        )
+    }
+
+    private fun forgetPc() {
+        AlertDialog.Builder(this)
+            .setTitle("Esquecer este PC")
+            .setMessage(
+                "Apaga deste aparelho a chave do PC e o PIN salvo.\n\n" +
+                    "Para conectar de novo, leia um novo QR no PC (ou digite o PIN). " +
+                    "No PC, use \"Esquecer aparelhos\" para revogar também do outro lado."
+            )
+            .setPositiveButton("Esquecer") { _, _ ->
+                prefs.edit()
+                    .remove(spkiKey())
+                    .remove(deviceKey())
+                    .remove("pin")
+                    .apply()
+                pinInput.setText("")
+                connectStatus.text = "Pareamento apagado. Leia o QR do PC para parear de novo."
+                toast("Pareamento apagado")
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showPairHelp(prefill: String?) {
+        val texto = TextView(this).apply {
+            text = "1. No PC, abra o QR de pareamento (ícone da bandeja ou tecla q no console).\n" +
+                "2. Aponte a câmera do celular para o QR e abra o link.\n\n" +
+                "Se a câmera não abrir, cole o link abaixo:"
+            textSize = 14f
+        }
+        val campo = EditText(this).apply {
+            hint = "localcontrol://…"
+            setText(prefill.orEmpty())
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            maxLines = 3
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(texto)
+            addView(campo)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Parear por QR")
+            .setView(layout)
+            .setPositiveButton("Abrir link") { _, _ ->
+                handlePairUri(campo.text.toString())
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     @Deprecated("Deprecated in Java")
@@ -234,6 +433,22 @@ class MainActivity : Activity(), RemoteView.Listener {
     /** Impressao digital da chave publica salva para o perfil ativo. */
     private fun spkiKey(): String = "spki_" + profileKeys[profile]
 
+    /** Credencial exclusiva deste aparelho, recebida no pareamento por QR. */
+    private fun deviceKey(): String = "device_" + profileKeys[profile]
+
+    private fun loadDevice(): Pair<String, String>? {
+        val raw = prefs.getString(deviceKey(), "").orEmpty()
+        if (raw.isEmpty()) return null
+        return try {
+            val obj = JSONObject(raw)
+            val id = obj.optString("id", "")
+            val key = obj.optString("key", "")
+            if (id.isNotEmpty() && key.isNotEmpty()) id to key else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun doConnect() {
         if (client != null || connecting) return
 
@@ -244,8 +459,9 @@ class MainActivity : Activity(), RemoteView.Listener {
         }
         val port = portInput.text.toString().trim().toIntOrNull() ?: 8765
         val pin = pinInput.text.toString().trim()
-        if (pin.isEmpty()) {
-            toast("Informe o PIN configurado no PC")
+        val device = loadDevice()
+        if (pin.isEmpty() && device == null) {
+            toast("Informe o PIN ou pareie pelo QR do PC")
             return
         }
 
@@ -253,8 +469,8 @@ class MainActivity : Activity(), RemoteView.Listener {
         prefs.edit()
             .putString("host", host)
             .putString("port", port.toString())
-            .putString("pin", pin)
             .apply()
+        if (pin.isNotEmpty()) prefs.edit().putString("pin", pin).apply()
 
         val preset = presets[presetIndex]
         connectStatus.text = "Conectando em $host:$port…"
@@ -263,12 +479,18 @@ class MainActivity : Activity(), RemoteView.Listener {
 
         val saved = prefs.getString(spkiKey(), "").orEmpty()
         if (saved.isNotEmpty()) {
-            startClient(host, port, pin, preset, saved)
+            startClient(host, port, pin.ifEmpty { null }, preset, saved, device = device)
             return
         }
 
-        // Primeiro pareamento: le a chave publica do PC e pede confirmacao
-        // explicita antes de mandar qualquer dado.
+        // Sem chave salva: o QR e' o caminho recomendado. Se o usuario digitou o
+        // PIN, faz a sondagem e pede confirmacao explicita da impressao digital.
+        if (pin.isEmpty()) {
+            connecting = false
+            connectBtn.isEnabled = true
+            connectStatus.text = "Sem pareamento salvo. Leia o QR do PC ou informe o PIN."
+            return
+        }
         connectStatus.text = "Verificando o certificado do PC…"
         Thread {
             try {
@@ -316,36 +538,49 @@ class MainActivity : Activity(), RemoteView.Listener {
             .show()
     }
 
-    private fun showMitmDialog(expected: String, actual: String) {
-        AlertDialog.Builder(this)
+    private fun showMitmDialog(expected: String, actual: String, allowRepair: Boolean = true) {
+        val builder = AlertDialog.Builder(this)
             .setTitle("Possível interceptação")
             .setMessage(
-                "A chave pública do PC mudou.\n\n" +
+                "A chave pública do PC não confere com a esperada.\n\n" +
                     "Esperada:\n" + LocalCrypto.formatFingerprint(expected) + "\n\n" +
                     "Recebida:\n" + LocalCrypto.formatFingerprint(actual) + "\n\n" +
-                    "Alguém pode estar interceptando a conexão. Só re-pareie se " +
-                    "você trocou o certificado do servidor de propósito."
+                    (if (allowRepair) {
+                        "Alguém pode estar interceptando a conexão. Só re-pareie se " +
+                            "você trocou o certificado do servidor de propósito."
+                    } else {
+                        "O QR não corresponde à chave já salva para este PC. Se você " +
+                            "trocou o certificado do servidor de propósito, use " +
+                            "\"Esquecer este PC\" e leia um novo QR. Caso contrário, " +
+                            "não conecte."
+                    })
             )
-            .setPositiveButton("Re-parear") { _, _ ->
-                prefs.edit().putString(spkiKey(), actual).apply()
-                doConnect()
-            }
             .setNegativeButton("Bloquear") { _, _ ->
                 connectStatus.text = "Conexão bloqueada: certificado diferente"
             }
             .setCancelable(false)
-            .show()
+
+        if (allowRepair) {
+            builder.setPositiveButton("Re-parear") { _, _ ->
+                prefs.edit().putString(spkiKey(), actual).apply()
+                doConnect()
+            }
+        }
+        builder.show()
     }
 
     private fun startClient(
         host: String,
         port: Int,
-        pin: String,
+        pin: String?,
         preset: Preset,
-        fingerprint: String
+        fingerprint: String,
+        pairToken: String? = null,
+        device: Pair<String, String>? = null
     ) {
         val c = RemoteClient(
-            host, port, pin, fingerprint, preset.width, preset.quality, preset.fps
+            host, port, pin, fingerprint, preset.width, preset.quality, preset.fps,
+            pairToken, device?.first, device?.second
         )
         c.listener = object : RemoteClient.Listener {
 
@@ -354,6 +589,26 @@ class MainActivity : Activity(), RemoteView.Listener {
                 connectBtn.isEnabled = true
                 connectStatus.text = ""
                 showRemote()
+            }
+
+            override fun onPaired(id: String, key: String, name: String) {
+                if (client !== c) return
+                // A credencial so e' gravada depois que o PC provou ter a chave
+                // do QR e o pareamento foi aceito.
+                prefs.edit()
+                    .putString(spkiKey(), fingerprint)
+                    .putString(
+                        deviceKey(),
+                        JSONObject()
+                            .put("id", id)
+                            .put("key", key)
+                            .put("name", name)
+                            .toString()
+                    )
+                    .apply()
+                pendingPair = null
+                connectStatus.text = "Pareado com ${name.ifEmpty { host }}"
+                toast("Pareado com ${name.ifEmpty { host }}")
             }
 
             override fun onScreenInfo(info: JSONObject) {
@@ -390,17 +645,20 @@ class MainActivity : Activity(), RemoteView.Listener {
 
             override fun onFingerprintMismatch(expected: String, actual: String) {
                 if (client !== c) return
+                val eraPareamento = pendingPair != null
+                pendingPair = null
                 client = null
                 c.stop()
                 connected = false
                 connecting = false
                 connectBtn.isEnabled = true
+                pairBtn.isEnabled = true
                 resetTransientUi()
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 connectRoot.visibility = View.VISIBLE
                 remoteRoot.visibility = View.GONE
-                connectStatus.text = "Conexão bloqueada: a chave do PC mudou"
-                showMitmDialog(expected, actual)
+                connectStatus.text = "Conexão bloqueada: a chave do PC não confere"
+                showMitmDialog(expected, actual, allowRepair = !eraPareamento)
             }
 
             override fun onClosed() {
@@ -438,7 +696,9 @@ class MainActivity : Activity(), RemoteView.Listener {
         c?.stop()
         connected = false
         connecting = false
+        pendingPair = null
         connectBtn.isEnabled = true
+        pairBtn.isEnabled = true
         resetTransientUi()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         connectRoot.visibility = View.VISIBLE
@@ -495,8 +755,11 @@ class MainActivity : Activity(), RemoteView.Listener {
         c?.stop()
         connected = false
         connecting = false
+        pendingPair = null
+        connectBtn.isEnabled = true
+        pairBtn.isEnabled = true
         remoteView.resetZoom()
-        closeKeyboard()
+        resetTransientUi()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         connectRoot.visibility = View.VISIBLE
         remoteRoot.visibility = View.GONE

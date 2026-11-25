@@ -9,9 +9,15 @@ Opcoes:
     --no-tls               conecta em TCP puro (servidor rodando com --no-tls)
     --fingerprint BASE64   exige esta impressao digital SPKI (pinning)
     --show-fingerprint     so mostra a impressao digital do servidor e sai
+    --pair-token TOKEN     pareia com o token do QR (uso unico) e mostra a
+                           credencial do aparelho para as proximas conexoes
+    --device-id ID         conecta como um aparelho ja pareado
+    --device-key BASE64    chave do aparelho (junto de --device-id)
+    --save-device ARQUIVO  salva id+chave recebidos no pareamento (NAO comite)
 
 O PIN nao e enviado: o cliente responde ao desafio do servidor com
 HMAC-SHA256(PBKDF2-HMAC-SHA256(pin, salt), nonce), igual ao app Android.
+No pareamento, o token tambem nao e enviado: vai apenas HMAC-SHA256(token, nonce).
 """
 
 from __future__ import annotations
@@ -25,6 +31,9 @@ import socket
 import ssl
 import struct
 import time
+from pathlib import Path
+
+import security
 
 MSG_VIDEO = 0x01
 MSG_SCREEN = 0x02
@@ -33,6 +42,7 @@ MSG_INPUT = 0x11
 MSG_INFO = 0x12
 MSG_PONG = 0x14
 MSG_CHALLENGE = 0x15
+MSG_PAIR_OK = 0x16
 
 MAX_MESSAGE = 8 * 1024 * 1024
 
@@ -84,6 +94,10 @@ def main() -> int:
     parser.add_argument("--no-tls", action="store_true", help="TCP puro")
     parser.add_argument("--fingerprint", default="", help="SPKI esperada (base64)")
     parser.add_argument("--show-fingerprint", action="store_true")
+    parser.add_argument("--pair-token", default="", help="token do QR (uso unico)")
+    parser.add_argument("--device-id", default="", help="id do aparelho pareado")
+    parser.add_argument("--device-key", default="", help="chave do aparelho (base64)")
+    parser.add_argument("--save-device", default="", help="salva a credencial do pareamento")
     args = parser.parse_args()
 
     print(f"conectando em {args.host}:{args.port} ...")
@@ -145,19 +159,39 @@ def main() -> int:
         return 1
 
     nonce = base64.b64decode(challenge["nonce"])
-    salt = base64.b64decode(challenge["salt"])
-    iterations = int(challenge["iter"])
-    key = hashlib.pbkdf2_hmac("sha256", args.pin.encode("utf-8"), salt, iterations, 32)
-    mac = base64.b64encode(hmac.new(key, nonce, hashlib.sha256).digest()).decode("ascii")
-
     hello = {
-        "v": 2,
+        "v": 3,
         "name": "test-client",
         "width": 1280,
         "quality": 70,
         "fps": 30,
-        "mac": mac,
     }
+
+    if args.pair_token:
+        token_bytes = args.pair_token.encode("ascii")
+        pid = hashlib.sha256(token_bytes).hexdigest()[:32]
+        hello["pid"] = pid
+        hello["mac"] = base64.b64encode(
+            hmac.new(token_bytes, nonce, hashlib.sha256).digest()
+        ).decode("ascii")
+        print("autenticando com token de pareamento (uso unico)...")
+    elif args.device_id and args.device_key:
+        key = base64.b64decode(args.device_key)
+        hello["device"] = args.device_id
+        hello["mac"] = base64.b64encode(
+            hmac.new(key, nonce, hashlib.sha256).digest()
+        ).decode("ascii")
+        print(f"autenticando como aparelho pareado {args.device_id}...")
+    else:
+        salt = base64.b64decode(challenge["salt"])
+        iterations = int(challenge["iter"])
+        key = hashlib.pbkdf2_hmac(
+            "sha256", args.pin.encode("utf-8"), salt, iterations, 32
+        )
+        hello["mac"] = base64.b64encode(
+            hmac.new(key, nonce, hashlib.sha256).digest()
+        ).decode("ascii")
+
     send(sock, MSG_HELLO, json.dumps(hello).encode())
 
     total = 0
@@ -172,7 +206,26 @@ def main() -> int:
             print("conexao encerrada pelo servidor")
             break
 
-        if mtype == MSG_SCREEN:
+        if mtype == MSG_PAIR_OK:
+            info = json.loads(payload)
+            print("pareamento concluido!")
+            print("  id :", info.get("id"))
+            print("  key:", info.get("key"))
+            if args.save_device:
+                destino = Path(args.save_device)
+                with open(destino, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        {
+                            "id": info.get("id"),
+                            "key": info.get("key"),
+                            "name": info.get("name"),
+                        },
+                        fh,
+                        indent=2,
+                    )
+                security.restrict_permissions(destino)
+                print("  credencial salva em", destino, "(nao comite)")
+        elif mtype == MSG_SCREEN:
             print("tela:", json.loads(payload))
         elif mtype == MSG_INFO:
             print("servidor:", json.loads(payload))

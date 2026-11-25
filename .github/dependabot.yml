@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Dependencias Python do servidor (mss, numpy, cryptography, qrcode, pystray...).
+  - package-ecosystem: "pip"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(pip)"
+
+  # Gradle do app Android (Kotlin, AGP e ZXing).
+  - package-ecosystem: "gradle"
+    directory: "/android"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(gradle)"
+
+  # Actions usadas em workflows, se houver.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(actions)"

@@ -7,6 +7,8 @@
     <string name="port_hint">Porta</string>
     <string name="pin_hint">PIN do PC (definido com --set-pin)</string>
     <string name="connect">Conectar</string>
+    <string name="pair_qr">Parear com QR Code</string>
     <string name="scan">Procurar na rede</string>
+    <string name="forget_pc">Esquecer este PC</string>
     <string name="usb_help">USB: rode "adb reverse tcp:8765 tcp:8765" no PC e conecte em 127.0.0.1</string>
 </resources>

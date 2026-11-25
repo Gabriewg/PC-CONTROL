@@ -11,6 +11,8 @@ server/server.log*
 server/server.err.log
 server/pin.txt
 server/auth_state.json
+server/devices.json
+server/pair.png
 frame.jpg
 server/frame.jpg
 server/pc*.png

@@ -6,6 +6,10 @@ pillow>=10.0
 # TLS: gera o certificado ECDSA P-256 e calcula a impressao digital SPKI.
 cryptography>=42.0
 
+# Pareamento por QR Code e aviso de conexao na bandeja do Windows.
+qrcode>=7.4
+pystray>=0.19
+
 # Opcional (Windows): captura via GPU com Desktop Duplication.
 # Sem ele o servidor cai automaticamente para GDI (mss) e continua funcionando.
 # dxcam

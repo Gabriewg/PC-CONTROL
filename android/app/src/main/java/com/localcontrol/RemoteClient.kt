@@ -31,17 +31,24 @@ import javax.net.ssl.SSLSocket
  * o PIN nunca trafega — o app responde ao nonce do servidor com
  * HMAC-SHA256(PBKDF2(pin), nonce).
  *
+ * No primeiro pareamento por QR, o app usa o token do QR (tambem por HMAC) e
+ * recebe do servidor uma chave exclusiva do aparelho; nas conexoes seguintes
+ * autentica com essa chave, sem PIN.
+ *
  * Uma thread le os quadros (JPEG) e decodifica em dois bitmaps alternados,
  * outra thread envia os eventos de entrada e uma terceira mede a latencia.
  */
 class RemoteClient(
     private val host: String,
     private val port: Int,
-    private val pin: String,
+    private val pin: String?,
     private val expectedFingerprint: String?,
     var width: Int,
     var quality: Int,
-    var fps: Int
+    var fps: Int,
+    private val pairToken: String? = null,
+    private val deviceId: String? = null,
+    private val deviceKey: String? = null
 ) {
 
     interface Listener {
@@ -52,6 +59,9 @@ class RemoteClient(
         fun onStats(fps: Int, latencyMs: Int)
         fun onError(message: String)
         fun onClosed()
+
+        /** Pareamento por QR concluido: guarde id+chave para as proximas conexoes. */
+        fun onPaired(id: String, key: String, name: String) {}
 
         /** A chave do PC mudou (possivel MITM). Nao conecte sem acao do usuario. */
         fun onFingerprintMismatch(expected: String, actual: String) {}
@@ -121,27 +131,58 @@ class RemoteClient(
             // 1) desafio: nonce novo por conexao (impede reaproveitar o MAC)
             val challenge = readChallenge(input) ?: return
 
-            val salt = LocalCrypto.base64Decode(challenge.getString("salt"))
             val nonce = LocalCrypto.base64Decode(challenge.getString("nonce"))
-            val iterations = challenge.optInt("iter", 210_000)
-            val key = LocalCrypto.pbkdf2Sha256(
-                pin.toByteArray(Charsets.UTF_8), salt, iterations, 32
-            )
-            val mac = LocalCrypto.base64Encode(LocalCrypto.hmacSha256(key, nonce))
 
             writer = Thread({ writeLoop() }, "lc-writer").apply {
                 isDaemon = true
                 start()
             }
 
-            // 2) HELLO com o MAC. O PIN em si nunca sai do aparelho.
+            // 2) HELLO: PIN, token de pareamento ou chave do aparelho.
+            //    Nenhum segredo e enviado: so o HMAC do nonce.
             val hello = JSONObject()
-                .put("v", 2)
+                .put("v", 3)
                 .put("name", Build.MODEL)
                 .put("width", width)
                 .put("quality", quality)
                 .put("fps", fps)
-                .put("mac", mac)
+
+            val token = pairToken
+            val savedId = deviceId
+            val savedKey = deviceKey
+            when {
+                !token.isNullOrEmpty() -> {
+                    val raw = token.toByteArray(Charsets.UTF_8)
+                    hello.put("pid", Pairing.tokenId(token))
+                    hello.put(
+                        "mac",
+                        LocalCrypto.base64Encode(LocalCrypto.hmacSha256(raw, nonce))
+                    )
+                }
+
+                !savedId.isNullOrEmpty() && !savedKey.isNullOrEmpty() -> {
+                    val raw = LocalCrypto.base64Decode(savedKey)
+                    hello.put("device", savedId)
+                    hello.put(
+                        "mac",
+                        LocalCrypto.base64Encode(LocalCrypto.hmacSha256(raw, nonce))
+                    )
+                }
+
+                !pin.isNullOrEmpty() -> {
+                    val salt = LocalCrypto.base64Decode(challenge.getString("salt"))
+                    val iterations = challenge.optInt("iter", 210_000)
+                    val key = LocalCrypto.pbkdf2Sha256(
+                        pin.toByteArray(Charsets.UTF_8), salt, iterations, 32
+                    )
+                    hello.put(
+                        "mac",
+                        LocalCrypto.base64Encode(LocalCrypto.hmacSha256(key, nonce))
+                    )
+                }
+
+                else -> throw IOException("sem PIN e sem pareamento: use o QR do PC")
+            }
             sendJson(TYPE_HELLO, hello)
 
             // so mede latencia depois do handshake, senao o ping chega antes do HELLO
@@ -158,6 +199,16 @@ class RemoteClient(
                 input.readFully(payload)
 
                 when (type) {
+                    TYPE_PAIR_OK -> {
+                        val info = JSONObject(String(payload, Charsets.UTF_8))
+                        val id = info.optString("id", "")
+                        val key = info.optString("key", "")
+                        if (id.isNotEmpty() && key.isNotEmpty()) {
+                            val nome = info.optString("name", "")
+                            post { listener?.onPaired(id, key, nome) }
+                        }
+                    }
+
                     TYPE_SCREEN -> {
                         val info = JSONObject(String(payload, Charsets.UTF_8))
                         val first = !handshakeDone
@@ -425,6 +476,7 @@ class RemoteClient(
         const val TYPE_PING = 0x13
         const val TYPE_PONG = 0x14
         const val TYPE_CHALLENGE = 0x15
+        const val TYPE_PAIR_OK = 0x16
 
         private const val MAX_INCOMING = 16 * 1024 * 1024
 

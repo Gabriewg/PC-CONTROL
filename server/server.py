@@ -19,10 +19,16 @@ Protocolo (os dois sentidos): [4 bytes tamanho][1 byte tipo][payload]
   0x13 PING     : JSON {"ts": ...}   (cliente -> servidor)
   0x14 PONG     : JSON {"ts": ...}   (servidor -> cliente)
   0x15 CHALLENGE: JSON {"nonce","salt","iter","kdf"} enviado antes do HELLO
+  0x16 PAIR_OK  : JSON {"id","key","name"} apos pareamento por QR (so uma vez)
 
 O PIN nunca trafega: o servidor manda um nonce novo a cada conexao e o app
 responde com HMAC-SHA256(chave_derivada_do_PIN, nonce). O pin.txt guarda apenas
 o resultado da KDF (PBKDF2-HMAC-SHA256 com salt).
+
+O pareamento por QR usa um token de uso unico (2 a 5 minutos). O app prova que
+tem o token com HMAC-SHA256(token, nonce) e recebe do servidor uma chave
+exclusiva do aparelho; nas conexoes seguintes ele autentica com essa chave, sem
+precisar do PIN.
 """
 
 from __future__ import annotations
@@ -31,15 +37,18 @@ import argparse
 import asyncio
 import getpass
 import io
+import ipaddress
 import json
 import logging
 import os
 import socket
 import struct
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -72,6 +81,7 @@ MSG_INFO = 0x12
 MSG_PING = 0x13
 MSG_PONG = 0x14
 MSG_CHALLENGE = 0x15
+MSG_PAIR_OK = 0x16
 
 DISCOVERY_PORT = 8766
 DISCOVERY_MAGIC = b"LOCALCONTROL_DISCOVER"
@@ -95,7 +105,7 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 # Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
 # Nenhum deles vai para o Git: veja .gitignore.
@@ -105,6 +115,8 @@ PIN_PATH = BASE_DIR / "pin.txt"
 CERT_PATH = BASE_DIR / "cert.pem"
 KEY_PATH = BASE_DIR / "key.pem"
 STATE_PATH = BASE_DIR / "auth_state.json"
+DEVICES_PATH = BASE_DIR / "devices.json"
+PAIR_IMAGE_PATH = BASE_DIR / "pair.png"
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUPS = 3
 
@@ -455,6 +467,11 @@ class Server:
         pin_record: security.PinRecord,
         limiter: security.RateLimiter,
         tls_enabled: bool,
+        *,
+        tokens: security.PairingTokens | None = None,
+        devices: security.DeviceStore | None = None,
+        fingerprint: str = "",
+        activity_cb=None,
     ) -> None:
         self.args = args
         self.pin_record = pin_record
@@ -464,6 +481,181 @@ class Server:
         self.grabber.monitor_index = args.monitor
         self.mouse = wininput.Mouse()
         self.keyboard = wininput.Keyboard()
+
+        self.tokens = tokens or security.PairingTokens(
+            getattr(args, "pair_ttl", security.PAIR_TTL)
+        )
+        self.devices = devices or security.DeviceStore(DEVICES_PATH)
+        self.fingerprint = fingerprint
+        self.activity_cb = activity_cb
+
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.tray = None
+        self.last_pairing_uri = ""
+        self.last_pairing_expires = 0.0
+        self._stop_event: asyncio.Event | None = None
+        self._discovery_transport = None
+        self._sessions: dict[int, tuple[str, str, float]] = {}
+        self._session_seq = 0
+
+    # -------------------------------------------------------------- aviso no PC
+
+    def _activity_changed(self) -> None:
+        """Atualiza o icone/notificacao do PC quando alguem conecta ou sai."""
+        count = len(self._sessions)
+        nomes = ", ".join(sorted({name for name, _ip, _t in self._sessions.values()}))
+        if self.activity_cb is not None:
+            try:
+                self.activity_cb(count, nomes)
+            except Exception:  # noqa: BLE001
+                pass
+        elif self.tray is not None:
+            try:
+                self.tray.update(count, nomes)
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            _set_console_title(count, nomes)
+
+    def _session_started(self, name: str, ip: str) -> int:
+        self._session_seq += 1
+        key = self._session_seq
+        self._sessions[key] = (name, ip, time.time())
+        log(f">>> CONEXAO ATIVA: {name} ({ip}) | {len(self._sessions)} ativa(s)")
+        self._activity_changed()
+        return key
+
+    def _session_ended(self, key: int) -> None:
+        self._sessions.pop(key, None)
+        self._activity_changed()
+
+    # -------------------------------------------------------------- pareamento
+
+    def pairing_host(self) -> str:
+        bind = str(getattr(self.args, "bind", "0.0.0.0"))
+        if bind not in ("0.0.0.0", "::", ""):
+            return bind
+        ips = local_ips()
+        # Prefere um IP de LAN privado; Tailscale (100.64/10) fica por ultimo
+        # porque o QR normalmente e lido com o celular na mesma rede Wi-Fi.
+        for ip in ips:
+            if _is_lan_ip(ip):
+                return ip
+        return ips[0]
+
+    def show_pairing(self, open_image: bool = False) -> str:
+        """Gera um token novo e mostra o QR (console + pair.png)."""
+        if not self.fingerprint:
+            print(
+                "pareamento por QR indisponivel: o TLS esta desligado (--no-tls).\n"
+                "Ligue o TLS para o app conseguir fixar a chave do PC."
+            )
+            return ""
+
+        # Um novo QR invalida os anteriores: se um deles vazou, deixa de valer.
+        self.tokens.clear()
+        item = self.tokens.create()
+        host = self.pairing_host()
+        uri = security.pairing_uri(
+            host, self.args.port, self.fingerprint, item.token, socket.gethostname()
+        )
+        self.last_pairing_uri = uri
+        self.last_pairing_expires = item.expires
+
+        print()
+        print("=" * 62)
+        print(" PAREAMENTO POR QR")
+        print(f" Aparelho: {socket.gethostname()}  ({host}:{self.args.port})")
+        print(f" Valido por {int(self.tokens.ttl)}s e somente UMA vez.")
+        print("=" * 62)
+        print(uri)
+        print()
+        _print_qr(uri)
+        if _save_pair_image(uri, PAIR_IMAGE_PATH):
+            print(f"QR salvo em {PAIR_IMAGE_PATH}")
+        if open_image:
+            try:
+                os.startfile(PAIR_IMAGE_PATH)  # type: ignore[attr-defined]
+            except OSError as exc:
+                log(f"nao consegui abrir {PAIR_IMAGE_PATH}: {exc}")
+        return uri
+
+    def print_devices(self) -> None:
+        recs = self.devices.all()
+        if not recs:
+            print("nenhum aparelho pareado.")
+            return
+        print(f"{len(recs)} aparelho(s) pareado(s):")
+        for rec in recs:
+            quando = datetime.fromtimestamp(rec.created).strftime("%d/%m/%Y %H:%M")
+            visto = (
+                datetime.fromtimestamp(rec.last_seen).strftime("%d/%m/%Y %H:%M")
+                if rec.last_seen
+                else "nunca"
+            )
+            print(f"  {rec.id}  {rec.name:<16}  pareado em {quando}  ultimo uso {visto}")
+
+    def forget_devices(self) -> None:
+        quantidade = len(self.devices.all())
+        self.devices.clear()
+        self.tokens.clear()
+        log(f"{quantidade} aparelho(s) pareado(s) esquecido(s); QR antigos invalidados")
+        print(f"{quantidade} aparelho(s) esquecido(s).")
+
+    def request_pairing(self, open_image: bool = True) -> None:
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.show_pairing, open_image)
+
+    def request_devices(self) -> None:
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.print_devices)
+
+    def request_forget(self) -> None:
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.forget_devices)
+
+    def request_stop(self) -> None:
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.stop)
+
+    def stop(self) -> None:
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+    def start_console(self) -> None:
+        """Comandos no console: q = novo QR, d = aparelhos, x = sair."""
+        if sys.stdin is None or not sys.stdin.isatty():
+            return
+        print("Comandos: q = novo QR de pareamento | d = aparelhos | x = sair")
+
+        def reader() -> None:
+            try:
+                for line in sys.stdin:
+                    cmd = line.strip().lower()
+                    if self.loop is None:
+                        break
+                    if cmd in ("q", "qr", "p", "pair", "parear"):
+                        self.loop.call_soon_threadsafe(self.show_pairing, False)
+                    elif cmd in ("d", "devices", "aparelhos"):
+                        self.loop.call_soon_threadsafe(self.print_devices)
+                    elif cmd in ("x", "sair", "quit", "exit"):
+                        self.loop.call_soon_threadsafe(self.stop)
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=reader, name="lc-console", daemon=True).start()
+
+    def start_tray(self) -> None:
+        if getattr(self.args, "no_tray", False):
+            return
+        try:
+            import tray as tray_module
+
+            self.tray = tray_module.start(self)
+        except Exception as exc:  # noqa: BLE001
+            log(f"aviso: icone de bandeja indisponivel ({exc})")
+            self.tray = None
 
     # -------------------------------------------------------------- video
 
@@ -597,6 +789,75 @@ class Server:
 
     # -------------------------------------------------------------- conexao
 
+    async def _reject_auth(self, conn: Conn, ip: str, reason: str) -> None:
+        info = self.limiter.failure(ip)
+        extra = (
+            f", bloqueado por {info.blocked_for:.0f}s" if info.blocked_for > 0 else ""
+        )
+        log(
+            f"autenticacao falhou de {ip} ({reason}; "
+            f"tentativa {info.attempts}, atraso {info.delay:.0f}s{extra})"
+        )
+        try:
+            await conn.send_json(
+                MSG_INFO, {"error": reason, "delay": info.delay}
+            )
+        except (ConnectionError, OSError):
+            pass
+        # atraso progressivo (1s, 2s, 4s...): encarece a forca bruta
+        await asyncio.sleep(info.delay)
+
+    async def authenticate(
+        self, conn: Conn, ip: str, nonce: bytes, hello: dict
+    ) -> bool:
+        """Valida PIN, chave de aparelho ou token de pareamento."""
+        mac = hello.get("mac")
+        pid = hello.get("pid")
+        device_id = hello.get("device")
+
+        # 1) Pareamento por QR: HMAC(token, nonce), token de uso unico.
+        if isinstance(pid, str) and pid:
+            if not isinstance(mac, str) or not self.tokens.verify_and_consume(
+                pid, nonce, mac
+            ):
+                await self._reject_auth(conn, ip, "pareamento invalido ou expirado")
+                return False
+            nome = str(hello.get("name", "celular"))[:32]
+            rec = self.devices.add(nome)
+            await conn.send_json(
+                MSG_PAIR_OK,
+                {
+                    "v": 1,
+                    "id": rec.id,
+                    "key": security.b64e(rec.key),
+                    "name": rec.name,
+                },
+            )
+            log(f"pareamento concluido: {rec.name} ({ip}) id {rec.id}")
+            self.limiter.success(ip)
+            return True
+
+        # 2) Aparelho ja pareado: HMAC(chave_do_aparelho, nonce).
+        if isinstance(device_id, str) and device_id:
+            if not isinstance(mac, str) or not self.devices.verify(
+                device_id, nonce, mac
+            ):
+                await self._reject_auth(conn, ip, "aparelho nao reconhecido")
+                return False
+            rec = self.devices.get(device_id)
+            log(f"aparelho pareado autenticado: {rec.name if rec else device_id} ({ip})")
+            self.limiter.success(ip)
+            return True
+
+        # 3) PIN (compatibilidade e conexao manual).
+        if not isinstance(mac, str) or not security.verify_mac(
+            self.pin_record, nonce, mac
+        ):
+            await self._reject_auth(conn, ip, "autenticacao falhou")
+            return False
+        self.limiter.success(ip)
+        return True
+
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
@@ -616,6 +877,7 @@ class Server:
         log(f"conexao de {ip}")
 
         stream_task: asyncio.Task | None = None
+        session_key: int | None = None
         try:
             bloqueio = self.limiter.blocked_for(ip)
             if bloqueio > 0:
@@ -636,7 +898,7 @@ class Server:
                 MSG_CHALLENGE, security.challenge_json(self.pin_record, nonce)
             )
 
-            # 2) HELLO com HMAC-SHA256(chave_do_PIN, nonce), dentro do prazo.
+            # 2) HELLO com HMAC (PIN, chave do aparelho ou token de pareamento).
             mtype, payload = await asyncio.wait_for(
                 read_msg(reader), timeout=HELLO_TIMEOUT
             )
@@ -654,31 +916,8 @@ class Server:
                 log(f"HELLO invalido de {ip}")
                 return
 
-            mac = hello.get("mac")
-            if not isinstance(mac, str) or not security.verify_mac(
-                self.pin_record, nonce, mac
-            ):
-                info = self.limiter.failure(ip)
-                extra = (
-                    f", bloqueado por {info.blocked_for:.0f}s"
-                    if info.blocked_for > 0
-                    else ""
-                )
-                log(
-                    f"autenticacao falhou de {ip} "
-                    f"(tentativa {info.attempts}, atraso {info.delay:.0f}s{extra})"
-                )
-                try:
-                    await conn.send_json(
-                        MSG_INFO, {"error": "autenticacao falhou", "delay": info.delay}
-                    )
-                except (ConnectionError, OSError):
-                    pass
-                # atraso progressivo (1s, 2s, 4s...): encarece a forca bruta
-                await asyncio.sleep(info.delay)
+            if not await self.authenticate(conn, ip, nonce, hello):
                 return
-
-            self.limiter.success(ip)
 
             session = Session(
                 name=str(hello.get("name", "celular"))[:32],
@@ -687,6 +926,7 @@ class Server:
                 fps=_clamp_int(hello.get("fps"), self.args.fps, 5, 60),
                 monitor=_clamp_int(hello.get("monitor"), self.args.monitor, 1, 16),
             )
+            session_key = self._session_started(session.name, ip)
             monitors = self.grabber.monitors()
             ultimo = len(monitors) - 1
             if ultimo >= 1:
@@ -737,6 +977,8 @@ class Server:
                     await stream_task
                 except BaseException:
                     pass
+            if session_key is not None:
+                self._session_ended(session_key)
             conn.close()
             log(f"desconectado {ip}")
 
@@ -775,6 +1017,9 @@ class Server:
     # -------------------------------------------------------------- run
 
     async def run(self, ssl_ctx=None) -> None:
+        self.loop = asyncio.get_running_loop()
+        self._stop_event = asyncio.Event()
+
         extra = {}
         if ssl_ctx is not None:
             extra = {"ssl": ssl_ctx, "ssl_handshake_timeout": HELLO_TIMEOUT}
@@ -794,8 +1039,90 @@ class Server:
             % (self.args.port, self.args.port)
         )
 
-        async with server:
-            await server.serve_forever()
+        self.start_tray()
+        self.start_console()
+        if not getattr(self.args, "no_qr", False):
+            self.show_pairing(open_image=getattr(self.args, "qr_open", False))
+
+        try:
+            await self._stop_event.wait()
+        finally:
+            server.close()
+            try:
+                await server.wait_closed()
+            except Exception:  # noqa: BLE001
+                pass
+            if self._discovery_transport is not None:
+                try:
+                    self._discovery_transport.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            if self.tray is not None:
+                try:
+                    self.tray.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+            _set_console_title(0, "")
+
+
+def _is_lan_ip(ip: str) -> bool:
+    """IP privado de LAN (exclui Tailscale/CGNAT 100.64/10)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if addr.version != 4:
+        return False
+    if ip.startswith("100."):
+        return False
+    return addr.is_private and not addr.is_loopback and not addr.is_link_local
+
+
+def _set_console_title(count: int, names: str = "") -> None:
+    """Fallback quando nao ha icone de bandeja: avisa no titulo do console."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        if count <= 0:
+            text = "Local Control - nenhuma conexao ativa"
+        elif count == 1:
+            text = f"Local Control - CONECTADO: {names}"
+        else:
+            text = f"Local Control - {count} conexoes ativas: {names}"
+        ctypes.windll.kernel32.SetConsoleTitleW(text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _print_qr(uri: str) -> None:
+    """Desenha o QR no terminal (blocos Unicode)."""
+    try:
+        import qrcode
+    except ImportError:
+        print("(instale 'qrcode' para ver o QR no terminal: pip install qrcode)")
+        return
+    try:
+        qr = qrcode.QRCode(border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+        qr.add_data(uri)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"(nao foi possivel desenhar o QR: {exc})")
+
+
+def _save_pair_image(uri: str, path: Path) -> bool:
+    try:
+        import qrcode
+
+        img = qrcode.make(uri)
+        img.save(path)
+        security.restrict_permissions(path)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"aviso: nao consegui salvar {path}: {exc}")
+        return False
 
 
 def local_ips() -> list[str]:
@@ -850,6 +1177,32 @@ def parse_args() -> argparse.Namespace:
         "--no-tls",
         action="store_true",
         help="desliga o TLS (APENAS diagnostico; exige PIN de 8+ caracteres)",
+    )
+    parser.add_argument(
+        "--pair-ttl",
+        type=int,
+        default=int(security.PAIR_TTL),
+        help="validade do QR de pareamento em segundos (30 a 600; padrao 180)",
+    )
+    parser.add_argument(
+        "--no-qr",
+        action="store_true",
+        help="nao mostra o QR de pareamento ao iniciar (use q no console)",
+    )
+    parser.add_argument(
+        "--qr-open",
+        action="store_true",
+        help="abre a imagem do QR (pair.png) ao iniciar",
+    )
+    parser.add_argument(
+        "--no-tray",
+        action="store_true",
+        help="nao usa o icone de bandeja (aviso de conexao so no console)",
+    )
+    parser.add_argument(
+        "--forget-devices",
+        action="store_true",
+        help="esquece todos os aparelhos pareados e sai",
     )
     parser.add_argument("--cert", default=str(CERT_PATH), help="certificado PEM")
     parser.add_argument("--key", default=str(KEY_PATH), help="chave privada PEM")
@@ -912,6 +1265,14 @@ def main() -> None:
     if args.set_pin:
         raise SystemExit(configure_pin(tls_enabled, args.pin))
 
+    devices = security.DeviceStore(DEVICES_PATH)
+    if args.forget_devices:
+        quantidade = len(devices.all())
+        devices.clear()
+        print(f"{quantidade} aparelho(s) pareado(s) esquecido(s).")
+        print("Os aparelhos precisarao parear de novo (QR ou PIN).")
+        return
+
     try:
         pin_record = security.load_pin(PIN_PATH)
     except security.PinFileError as exc:
@@ -964,10 +1325,19 @@ def main() -> None:
         log("       use apenas para diagnostico em rede confiavel.")
 
     limiter = security.RateLimiter(STATE_PATH)
+    tokens = security.PairingTokens(args.pair_ttl)
 
     server: Server | None = None
     try:
-        server = Server(args, pin_record, limiter, tls_enabled)
+        server = Server(
+            args,
+            pin_record,
+            limiter,
+            tls_enabled,
+            tokens=tokens,
+            devices=devices,
+            fingerprint=fingerprint,
+        )
         asyncio.run(server.run(ssl_ctx))
     except KeyboardInterrupt:
         print()

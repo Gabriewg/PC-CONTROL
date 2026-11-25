@@ -43,8 +43,8 @@ Abra uma issue com:
   português, como no restante do projeto. Prefira `asyncio` no servidor e evite
   bloquear o loop de eventos.
 - **Kotlin**: 4 espaços de indentação, nomes de classes em `PascalCase` e
-  funções/variáveis em `camelCase`. Sem dependências externas no app, se
-  possível.
+  funções/variáveis em `camelCase`. Evite novas dependências no app: hoje só o
+  ZXing Android Embedded é usado, para ler o QR de pareamento.
 - **Commits**: mensagens curtas e no imperativo (`corrige cursor no monitor 2`,
   `adiciona opcao --bind`).
 - Não reformate arquivos inteiros junto com uma correção funcional.
@@ -55,8 +55,13 @@ Servidor, sem precisar do celular:
 
 ```powershell
 cd server
+.venv\Scripts\python.exe test_pair.py
 .venv\Scripts\python.exe test_client.py 127.0.0.1 8765
 ```
+
+O `test_pair.py` cobre o QR, o token de uso único, a expiração, a revogação e a
+reconexão pela credencial do aparelho. O `test_client.py` é o cliente de vídeo
+(veja as opções `--pair-token`, `--device-id` e `--device-key`).
 
 App:
 
@@ -74,6 +79,7 @@ O repositório é público e não deve conter dados de quem desenvolve. O
 `.gitignore` já cobre os principais casos, mas confira antes de abrir o PR:
 
 - `server/pin.txt`, `server/auth_state.json`, PINs e senhas;
+- `server/devices.json` (credenciais dos aparelhos) e `server/pair.png` (QR);
 - `server/cert.pem`, `server/key.pem`, qualquer `*.pem`/`*.key` e keystores;
 - logs (`server/server.log*`, `server/server.err.log`, `*.log`);
 - IPs reais, nomes de máquina e caminhos com seu usuário;
@@ -85,9 +91,15 @@ precisa ser removido do histórico, não apenas do commit mais recente.
 
 ## Segurança
 
-Não abra uma issue pública para relatar vulnerabilidades. Descreva o problema
-em particular para o mantenedor pelo perfil do GitHub e dê um prazo razoável
-para a correção antes de divulgar.
+Não abra uma issue pública para relatar vulnerabilidades. Leia o
+[SECURITY.md](SECURITY.md) e use o
+[Security Advisory privado](https://github.com/Gabriewg/PC-CONTROL/security/advisories/new).
+Descreva o problema em particular, com passos para reproduzir, e dê um prazo
+razoável para a correção antes de divulgar.
+
+Ao mexer em TLS, pinning, PIN, tokens de pareamento ou credenciais de aparelho,
+rode `server/test_pair.py` e os testes de integração, e explique no PR qual
+propriedade de segurança a mudança preserva.
 
 ## Licença
 
