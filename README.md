@@ -1,5 +1,7 @@
 # PocketDesk
 
+**Português** · [English](README.en.md)
+
 Controle remoto do seu PC Windows pelo celular — **sem nuvem, sem conta e sem
 internet**. O servidor roda no PC, captura a tela e envia por TCP; o app Android
 mostra a imagem e transforma toques e teclas em eventos de mouse e teclado.
@@ -42,8 +44,8 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
   persistente entre reinícios.
 - Controle de fluxo: em rede ruim o servidor **descarta quadros** em vez de
   acumular atraso.
-- App praticamente sem dependências externas: só o ZXing para ler o QR Code; o
-  resto usa APIs do Android.
+- App praticamente sem dependências externas: ZXing (com o `androidx.core`) só
+  para ler o QR Code; o resto usa APIs do Android.
 
 ## Estrutura do repositório
 
