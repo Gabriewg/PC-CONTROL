@@ -17,7 +17,8 @@ from .dialogs import ConfirmModal, PinModal, UsbModal
 from .host import HostError, ServerHost
 from .tray import GuiTray
 from .widgets import (
-    Button, Card, Divider, LinkButton, ProgressBar, StatusPill, Toggle, round_rect,
+    Button, Card, Divider, LinkButton, ProgressBar, SlimScrollbar, StatusPill,
+    Toggle, round_rect,
 )
 
 import security
@@ -101,6 +102,12 @@ class MainWindow:
         self._toast_after = None
         self._placeholder_cache: dict[str, object] = {}
         self._tray: GuiTray | None = None
+        self._bar_visible = False
+
+        self._win_w, self._win_h = self._initial_size()
+        # Telas baixas (768p) ou com DPI alto precisam de uma versao mais justa.
+        self._compact = self._win_h / max(T.get_scale(), 0.01) < 789
+        self._qr_target = 176 if self._compact else 224
 
         self._build()
         self._setup_window()
@@ -111,6 +118,7 @@ class MainWindow:
         self._start_tray()
         self._poll()
         self._tick()
+        self.root.after(80, self._fit_content)
 
         if self.host.has_pin:
             self.root.after(200, self.start_server)
@@ -119,14 +127,19 @@ class MainWindow:
 
     # ================================================================ janela
 
+    def _initial_size(self) -> tuple[int, int]:
+        root = self.root
+        largura = min(T.px(1180), root.winfo_screenwidth() - T.px(60))
+        altura = min(T.px(790), root.winfo_screenheight() - T.px(110))
+        return largura, altura
+
     def _setup_window(self) -> None:
         root = self.root
         root.title("PocketDesk")
         root.configure(bg=T.BG)
         root.minsize(min(T.px(980), root.winfo_screenwidth() - T.px(40)),
                      min(T.px(650), root.winfo_screenheight() - T.px(90)))
-        largura = min(T.px(1180), root.winfo_screenwidth() - T.px(60))
-        altura = min(T.px(790), root.winfo_screenheight() - T.px(110))
+        largura, altura = self._win_w, self._win_h
         x = (root.winfo_screenwidth() - largura) // 2
         y = max(0, (root.winfo_screenheight() - altura) // 2 - T.px(18))
         root.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -135,6 +148,12 @@ class MainWindow:
         root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
         root.bind("<Control-q>", lambda _e: self.quit())
         root.bind("<F5>", lambda _e: self.generate_qr())
+
+    def _m(self, normal: int, compact: int | None = None) -> int:
+        """Medida em px: usa a versao compacta quando a tela e' baixa."""
+        if compact is None or not self._compact:
+            return T.px(normal)
+        return T.px(compact)
 
     def _build(self) -> None:
         self._build_header()
@@ -146,17 +165,39 @@ class MainWindow:
 
         self._build_footer()
 
-        content = tk.Frame(self.root, bg=T.BG)
-        content.pack(fill="both", expand=True, padx=T.px(24), pady=(0, T.px(10)))
+        # Conteudo rolavel: em 768p (ou DPI alto) sobra pouco espaco, e nada
+        # pode ficar escondido atras do rodape.
+        shell = tk.Frame(self.root, bg=T.BG)
+        shell.pack(fill="both", expand=True, padx=T.px(24), pady=(0, self._m(10, 8)))
+
+        self._scroll = tk.Canvas(
+            shell, bg=T.BG, highlightthickness=0, bd=0, takefocus=0,
+        )
+        self._scroll.pack(side="left", fill="both", expand=True, padx=(0, T.px(14)))
+        self._scroll_bar = SlimScrollbar(
+            shell, command=self._scroll.yview,
+            bg=T.BG, thumb=T.BORDER, width=T.px(8),
+        )
+        self._scroll.configure(yscrollcommand=self._on_scroll_set)
+
+        content = tk.Frame(self._scroll, bg=T.BG)
+        self._content = content
+        self._scroll_window = self._scroll.create_window(
+            (0, 0), anchor="nw", window=content,
+        )
         content.grid_columnconfigure(0, minsize=T.px(300))
         content.grid_columnconfigure(1, weight=1, minsize=T.px(370))
         content.grid_columnconfigure(2, minsize=T.px(320))
         content.grid_rowconfigure(0, weight=1)
 
+        self._scroll.bind("<Configure>", self._fit_content)
+        content.bind("<Configure>", self._fit_content)
+        self.root.bind_all("<MouseWheel>", self._on_wheel, add="+")
+
         esquerda = tk.Frame(content, bg=T.BG)
-        esquerda.grid(row=0, column=0, sticky="nsew", padx=(0, T.px(14)))
+        esquerda.grid(row=0, column=0, sticky="nsew", padx=(0, self._m(14, 12)))
         centro = tk.Frame(content, bg=T.BG)
-        centro.grid(row=0, column=1, sticky="nsew", padx=(0, T.px(14)))
+        centro.grid(row=0, column=1, sticky="nsew", padx=(0, self._m(14, 12)))
         direita = tk.Frame(content, bg=T.BG)
         direita.grid(row=0, column=2, sticky="nsew")
 
@@ -167,11 +208,64 @@ class MainWindow:
         self._build_devices_card(direita)
         self._build_log_card(direita)
 
+    # ---------------------------------------------------------------- rolagem
+
+    def _fit_content(self, _event=None) -> None:
+        """Estica o conteudo ate' a altura da janela (ou o quanto ele pedir)."""
+        try:
+            largura = max(1, self._scroll.winfo_width())
+            natural = self._content.winfo_reqheight()
+            altura = max(self._scroll.winfo_height(), natural)
+            self._scroll.itemconfigure(
+                self._scroll_window, width=largura, height=altura,
+            )
+            self._scroll.configure(scrollregion=(0, 0, largura, altura))
+        except tk.TclError:
+            return
+        self.root.after_idle(self._sync_scrollbar)
+
+    def _on_scroll_set(self, first, last) -> None:
+        self._scroll_bar.set(first, last)
+        self._sync_scrollbar()
+
+    def _sync_scrollbar(self) -> None:
+        try:
+            precisa = (
+                self._content.winfo_height() > self._scroll.winfo_height() + 1
+            )
+        except tk.TclError:
+            return
+        if precisa == self._bar_visible:
+            return
+        self._bar_visible = precisa
+        if precisa:
+            self._scroll_bar.place(
+                relx=1.0, rely=0.0, anchor="ne", relheight=1.0, width=T.px(8),
+            )
+        else:
+            self._scroll_bar.place_forget()
+            self._scroll.yview_moveto(0)
+
+    def _on_wheel(self, event) -> None:
+        try:
+            x0 = self._scroll.winfo_rootx()
+            y0 = self._scroll.winfo_rooty()
+            x1 = x0 + self._scroll.winfo_width()
+            y1 = y0 + self._scroll.winfo_height()
+            if not (x0 <= event.x_root < x1 and y0 <= event.y_root < y1):
+                return
+            if self._content.winfo_height() <= self._scroll.winfo_height():
+                return
+        except tk.TclError:
+            return
+        passo = -1 if event.delta > 0 else 1
+        self._scroll.yview_scroll(passo * 3, "units")
+
     # ---------------------------------------------------------------- topo
 
     def _build_header(self) -> None:
-        header = tk.Frame(self.root, bg=T.BG, height=T.px(86))
-        header.pack(fill="x", padx=T.px(24), pady=(T.px(16), T.px(6)))
+        header = tk.Frame(self.root, bg=T.BG, height=self._m(86, 76))
+        header.pack(fill="x", padx=T.px(24), pady=(self._m(16, 10), self._m(6, 4)))
         header.pack_propagate(False)
 
         logo = tk.Canvas(
@@ -194,7 +288,7 @@ class MainWindow:
         )
 
         titulos = tk.Frame(header, bg=T.BG)
-        titulos.pack(side="left", padx=(T.px(14), 0), pady=T.px(6))
+        titulos.pack(side="left", padx=(T.px(14), 0), pady=self._m(6, 2))
         _label(titulos, "PocketDesk", T.F_DISPLAY, T.TEXT, T.BG).pack(anchor="w")
         _label(
             titulos, "Controle remoto local - sem nuvem, sem conta",
@@ -202,19 +296,19 @@ class MainWindow:
         ).pack(anchor="w")
 
         self.pill = StatusPill(header, bg=T.BG)
-        self.pill.pack(side="right", pady=T.px(16))
+        self.pill.pack(side="right", pady=self._m(16, 12))
 
     # ---------------------------------------------------------------- rodape
 
     def _build_footer(self) -> None:
         borda = tk.Frame(self.root, bg=T.BORDER_SOFT)
         borda.pack(side="bottom", fill="x")
-        footer = tk.Frame(borda, bg=T.BG_DEEP, height=T.px(58))
+        footer = tk.Frame(borda, bg=T.BG_DEEP, height=self._m(58, 52))
         footer.pack(fill="x", pady=(1, 0))
         footer.pack_propagate(False)
 
         linha = tk.Frame(footer, bg=T.BG_DEEP)
-        linha.pack(fill="x", padx=T.px(24), pady=T.px(11))
+        linha.pack(fill="x", padx=T.px(24), pady=self._m(11, 8))
 
         self.firewall_btn = Button(
             linha, "Liberar firewall", self._firewall_click,
@@ -253,13 +347,13 @@ class MainWindow:
     # ---------------------------------------------------------------- servidor
 
     def _build_server_card(self, parent: tk.Frame) -> None:
-        card = Card(parent)
+        card = Card(parent, pad=self._m(T.PAD, 15))
         card.pack(fill="x")
         body = card.body
 
         _section(body, "SERVIDOR").pack(anchor="w")
         linha = tk.Frame(body, bg=T.CARD)
-        linha.pack(fill="x", pady=(T.px(14), 0))
+        linha.pack(fill="x", pady=(self._m(14, 12), 0))
 
         self.toggle = Toggle(linha, value=False, command=self.toggle_server, bg=T.CARD)
         self.toggle.pack(side="left", pady=T.px(2))
@@ -271,7 +365,7 @@ class MainWindow:
         self.server_sub = _label(textos, "Clique na chave para ligar", T.F_SMALL, T.TEXT_DIM)
         self.server_sub.pack(anchor="w")
 
-        Divider(body, bg=T.CARD).pack(fill="x", pady=(T.px(16), T.px(14)))
+        Divider(body, bg=T.CARD).pack(fill="x", pady=(self._m(16, 12), self._m(14, 10)))
 
         self.host_label = self._info_row(body, "COMPUTADOR", platform_win.hostname())
         self.addr_label = self._info_row(
@@ -300,7 +394,7 @@ class MainWindow:
         action_label: str = "Copiar",
     ) -> tk.Label:
         linha = tk.Frame(parent, bg=T.CARD)
-        linha.pack(fill="x", pady=(0, T.px(12)))
+        linha.pack(fill="x", pady=(0, self._m(12, 9)))
         _label(linha, caption, T.F_TINY, T.TEXT_DIM).pack(anchor="w")
         valores = tk.Frame(linha, bg=T.CARD)
         valores.pack(fill="x", pady=(T.px(2), 0))
@@ -314,23 +408,24 @@ class MainWindow:
         return label
 
     def _build_usb_card(self, parent: tk.Frame) -> None:
-        card = Card(parent)
-        card.pack(fill="x", pady=(T.px(14), 0))
+        card = Card(parent, pad=self._m(T.PAD, 15))
+        card.pack(fill="x", pady=(self._m(14, 12), 0))
         _section(card.body, "CONEXAO USB").pack(anchor="w")
-        _label(
-            card.body,
-            "Cabo + depuracao USB: mais rapido e estavel que o Wi-Fi.",
-            T.F_SMALL, T.TEXT_MUTED, wraplength=T.px(240), justify="left",
-        ).pack(anchor="w", pady=(T.px(8), T.px(12)))
+        if not self._compact:
+            _label(
+                card.body,
+                "Cabo + depuracao USB: mais rapido e estavel que o Wi-Fi.",
+                T.F_SMALL, T.TEXT_MUTED, wraplength=T.px(240), justify="left",
+            ).pack(anchor="w", pady=(T.px(8), T.px(12)))
         Button(
             card.body, "Configurar tunel USB", self._open_usb,
-            variant="secondary", height=T.px(36), bg=T.CARD,
-        ).pack(fill="x")
+            variant="secondary", height=self._m(36, 34), bg=T.CARD,
+        ).pack(fill="x", pady=(0 if not self._compact else self._m(0, 10), 0))
 
     # ---------------------------------------------------------------- QR
 
     def _build_qr_card(self, parent: tk.Frame) -> None:
-        card = Card(parent)
+        card = Card(parent, pad=self._m(T.PAD, 15))
         card.pack(fill="x")
         body = card.body
 
@@ -342,39 +437,42 @@ class MainWindow:
             font=T.F_TINY, padx=T.px(8), pady=T.px(2),
         ).pack(side="right")
 
-        moldura = tk.Frame(body, bg=T.WHITE, padx=T.px(10), pady=T.px(10))
-        moldura.pack(pady=(T.px(14), 0))
+        moldura = tk.Frame(body, bg=T.WHITE, padx=self._m(10, 8), pady=self._m(10, 8))
+        moldura.pack(pady=(self._m(14, 10), 0))
         self.qr_label = tk.Label(moldura, bg=T.WHITE, bd=0)
         self.qr_label.pack()
         self.qr_label.configure(image=self._placeholder("Ligue o servidor"))
 
         linha = tk.Frame(body, bg=T.CARD)
-        linha.pack(fill="x", pady=(T.px(14), 0))
+        linha.pack(fill="x", pady=(self._m(14, 10), 0))
         self.qr_status = _label(linha, "Servidor desligado", T.F_SMALL, T.TEXT_MUTED)
         self.qr_status.pack(side="left")
         self.qr_time = _label(linha, "", T.F_SMALL_BOLD, T.TEXT)
         self.qr_time.pack(side="right")
 
         self.qr_progress = ProgressBar(body, bg=T.CARD)
-        self.qr_progress.pack(fill="x", pady=(T.px(8), 0))
+        self.qr_progress.pack(fill="x", pady=(self._m(8, 6), 0))
 
         self.qr_button = Button(
             body, "Gerar novo QR", self.generate_qr, variant="primary",
-            height=T.px(42), bg=T.CARD,
+            height=self._m(42, 38), bg=T.CARD,
         )
-        self.qr_button.pack(fill="x", pady=(T.px(14), 0))
+        self.qr_button.pack(fill="x", pady=(self._m(14, 10), 0))
 
         _label(
             body,
             "No celular: PocketDesk > Conectar > Ler QR Code",
-            T.F_TINY, T.TEXT_DIM, wraplength=T.px(330), justify="center",
-        ).pack(pady=(T.px(10), 0))
+            T.F_TINY, T.TEXT_DIM, wraplength=self._m(330, 300), justify="center",
+        ).pack(pady=(self._m(10, 6), 0))
 
     # ---------------------------------------------------------------- sessoes
 
     def _build_sessions_card(self, parent: tk.Frame) -> None:
-        card = Card(parent, fill=True)
-        card.pack(fill="both", expand=True, pady=(T.px(14), 0))
+        card = Card(
+            parent, fill=True, pad=self._m(T.PAD, 15), height=T.px(90),
+        )
+        self.sessions_card = card
+        card.pack(fill="both", expand=True, pady=(self._m(14, 12), 0))
         topo = tk.Frame(card.body, bg=T.CARD)
         topo.pack(fill="x")
         _section(topo, "SESSOES ATIVAS").pack(side="left")
@@ -385,12 +483,12 @@ class MainWindow:
         self.sessions_count.pack(side="right")
 
         self.sessions_box = tk.Frame(card.body, bg=T.CARD)
-        self.sessions_box.pack(fill="both", expand=True, pady=(T.px(12), 0))
+        self.sessions_box.pack(fill="both", expand=True, pady=(self._m(12, 10), 0))
 
     # ---------------------------------------------------------------- aparelhos
 
     def _build_devices_card(self, parent: tk.Frame) -> None:
-        card = Card(parent)
+        card = Card(parent, pad=self._m(T.PAD, 15))
         card.pack(fill="x")
         topo = tk.Frame(card.body, bg=T.CARD)
         topo.pack(fill="x")
@@ -402,20 +500,22 @@ class MainWindow:
         self.devices_count.pack(side="right")
 
         self.devices_box = tk.Frame(card.body, bg=T.CARD)
-        self.devices_box.pack(fill="x", pady=(T.px(12), 0))
+        self.devices_box.pack(fill="x", pady=(self._m(12, 10), 0))
 
         self.forget_btn = Button(
             card.body, "Esquecer todos", self._forget_all, variant="ghost",
-            height=T.px(34), bg=T.CARD, font=T.F_SMALL_BOLD,
+            height=self._m(34, 32), bg=T.CARD, font=T.F_SMALL_BOLD,
         )
-        self.forget_btn.pack(fill="x", pady=(T.px(4), 0))
+        self.forget_btn.pack(fill="x", pady=(self._m(4, 2), 0))
         self.forget_btn.set_enabled(False)
 
     # ---------------------------------------------------------------- atividade
 
     def _build_log_card(self, parent: tk.Frame) -> None:
-        card = Card(parent, fill=True)
-        card.pack(fill="both", expand=True, pady=(T.px(14), 0))
+        card = Card(
+            parent, fill=True, pad=self._m(T.PAD, 15), height=T.px(180),
+        )
+        card.pack(fill="both", expand=True, pady=(self._m(14, 12), 0))
         topo = tk.Frame(card.body, bg=T.CARD)
         topo.pack(fill="x")
         _section(topo, "ATIVIDADE").pack(side="left")
@@ -423,14 +523,14 @@ class MainWindow:
             topo, "Abrir log",
             lambda: platform_win.open_path(self.host.data_dir / "server.log"),
             bg=T.CARD,
-        ).pack(side="right")
+        ).pack(side="right", padx=(0, T.px(4)))
 
         self.log_text = tk.Text(
             card.body, height=6, bg=T.BG_DEEP, fg=T.TEXT_MUTED,
             font=T.F_MONO_SMALL, relief="flat", bd=0, highlightthickness=0,
             wrap="word", padx=T.px(10), pady=T.px(8), cursor="arrow",
         )
-        self.log_text.pack(fill="both", expand=True, pady=(T.px(10), 0))
+        self.log_text.pack(fill="both", expand=True, pady=(self._m(10, 8), 0))
         self.log_text.configure(state="disabled")
 
     # ================================================================ estado
@@ -558,13 +658,14 @@ class MainWindow:
             )
             qr.add_data(uri)
             qr.make(fit=True)
-            alvo = T.px(224)
+            alvo = T.px(self._qr_target)
             modulos = qr.modules_count + 4
             qr.box_size = max(3, alvo // modulos)
             img = qr.make_image(fill_color="#2A0A14", back_color="#FFFFFF").convert("RGB")
             photo = ImageTk.PhotoImage(img)
             self.qr_label.configure(image=photo)
             self._qr_photo = photo
+            self.root.after(80, self._fit_content)
         except Exception as exc:  # noqa: BLE001
             self.qr_status.configure(text=f"Falha ao desenhar o QR: {exc}")
 
@@ -577,6 +678,7 @@ class MainWindow:
         self.qr_status.configure(text="Servidor desligado", fg=T.TEXT_MUTED)
         self.qr_time.configure(text="", fg=T.TEXT)
         self.qr_progress.set(0)
+        self.root.after(80, self._fit_content)
 
     def _placeholder(self, text: str):
         from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -584,7 +686,7 @@ class MainWindow:
         cache = self._placeholder_cache.get(text)
         if cache is not None:
             return cache
-        size = T.px(224)
+        size = T.px(self._qr_target)
         img = Image.new("RGB", (size, size), "#FFFFFF")
         draw = ImageDraw.Draw(img)
         try:
@@ -646,10 +748,21 @@ class MainWindow:
 
     # ---------------------------------------------------------------- sessoes
 
+    @staticmethod
+    def _set_badge(label: tk.Label, value: str) -> None:
+        if value:
+            if label.cget("text") != value:
+                label.configure(text=value)
+            if not label.winfo_manager():
+                label.pack(side="right")
+        elif label.winfo_manager():
+            label.configure(text="")
+            label.pack_forget()
+
     def _refresh_sessions(self) -> None:
         sessoes = self.host.session_list() if self.host.ready else []
         assinatura = tuple((s["name"], s["ip"]) for s in sessoes)
-        self.sessions_count.configure(text=str(len(sessoes)) if sessoes else "")
+        self._set_badge(self.sessions_count, str(len(sessoes)) if sessoes else "")
 
         if assinatura != self._sessions_sig:
             self._sessions_sig = assinatura
@@ -663,6 +776,10 @@ class MainWindow:
                 ).pack(anchor="w", pady=(T.px(4), 0))
             for sessao in sessoes:
                 self._session_rows[(sessao["name"], sessao["ip"])] = self._session_row(sessao)
+
+        self.sessions_card.fit(T.px(90))
+        self.root.after_idle(self._fit_content)
+        self.root.after(80, self._fit_content)
 
         for sessao in sessoes:
             label = self._session_rows.get((sessao["name"], sessao["ip"]))
@@ -692,11 +809,12 @@ class MainWindow:
     def _refresh_devices(self, force: bool = False) -> None:
         aparelhos = self.host.device_list()
         assinatura = tuple((a["id"], a["name"], a["last_seen"]) for a in aparelhos)
-        self.devices_count.configure(text=str(len(aparelhos)) if aparelhos else "")
+        self._set_badge(self.devices_count, str(len(aparelhos)) if aparelhos else "")
         self.forget_btn.set_enabled(bool(aparelhos))
         if not force and assinatura == self._devices_sig:
             return
         self._devices_sig = assinatura
+        self.root.after(80, self._fit_content)
 
         for filho in self.devices_box.winfo_children():
             filho.destroy()
@@ -940,6 +1058,7 @@ class MainWindow:
         self._refresh_sessions()
         if self.host.ready:
             self._refresh_devices()
+        self._fit_content()
         try:
             self.root.after(1000, self._tick)
         except tk.TclError:

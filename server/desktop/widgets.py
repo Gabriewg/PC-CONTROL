@@ -110,6 +110,110 @@ class Card(tk.Canvas):
             self._target_height = target
             self.configure(height=target)
 
+    def fit(self, minimum: int) -> None:
+        """Altura minima que ainda mostra todo o conteudo (cartoes fill=True).
+
+        O cartao cheio estica quando sobra espaco; com isto ele tambem cresce
+        quando o conteudo (por exemplo, varias sessoes) passa da altura minima.
+        """
+        target = max(minimum, self._body.winfo_reqheight() + 2 * self._pad)
+        if abs(target - self._target_height) > 1:
+            self._target_height = target
+            self.configure(height=target)
+
+
+# ------------------------------------------------------------------ rolagem
+
+
+class SlimScrollbar(tk.Canvas):
+    """Barra de rolagem fina e escura (a nativa do Windows fica clara demais)."""
+
+    def __init__(
+        self,
+        master,
+        command,
+        *,
+        bg: str = T.BG,
+        thumb: str = T.BORDER,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            master, bg=bg, highlightthickness=0, bd=0, takefocus=0, **kwargs,
+        )
+        self._command = command
+        self._thumb_color = thumb
+        self._first = 0.0
+        self._last = 1.0
+        self._drag: tuple[float, float] | None = None
+        self._hover = False
+        self.bind("<Configure>", lambda _e: self._draw())
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", self._on_press)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def set(self, first, last) -> None:
+        self._first = float(first)
+        self._last = float(last)
+        self._draw()
+
+    def _thumb(self) -> tuple[int, int]:
+        altura = max(1, self.winfo_height())
+        y0 = int(self._first * altura)
+        y1 = int(self._last * altura)
+        if y1 - y0 < T.px(24):
+            meio = (y0 + y1) // 2
+            y0, y1 = meio - T.px(12), meio + T.px(12)
+        return max(0, y0), min(altura, y1)
+
+    def _draw(self) -> None:
+        if not _exists(self):
+            return
+        self.delete("all")
+        largura, altura = self.winfo_width(), self.winfo_height()
+        if largura <= 1 or altura <= 1:
+            return
+        y0, y1 = self._thumb()
+        cor = T.TEXT_DIM if self._hover else self._thumb_color
+        round_rect(
+            self, 2, y0 + 1, largura - 2, y1 - 1, (largura - 4) / 2,
+            fill=cor, outline="",
+        )
+
+    def _on_enter(self, _event) -> None:
+        self._hover = True
+        self._draw()
+
+    def _on_leave(self, _event) -> None:
+        self._hover = False
+        self._draw()
+
+    def _move_to(self, fraction: float) -> None:
+        visivel = self._last - self._first
+        alvo = min(max(0.0, fraction), max(0.0, 1.0 - visivel))
+        self._command("moveto", str(alvo))
+
+    def _on_press(self, event) -> None:
+        y0, y1 = self._thumb()
+        if y0 <= event.y <= y1:
+            self._drag = (event.y, self._first)
+            return
+        self._move_to(
+            event.y / max(1, self.winfo_height()) - (self._last - self._first) / 2
+        )
+
+    def _on_drag(self, event) -> None:
+        if self._drag is None:
+            return
+        y, inicio = self._drag
+        self._move_to(
+            inicio + (event.y - y) / max(1, self.winfo_height())
+        )
+
+    def _on_release(self, _event) -> None:
+        self._drag = None
+
 
 # ------------------------------------------------------------------ botao
 
@@ -260,7 +364,7 @@ class LinkButton(tk.Label):
     def __init__(self, master, text: str, command=None, *, bg: str = T.CARD) -> None:
         super().__init__(
             master, text=text, bg=bg, fg=T.ACCENT_HOVER,
-            font=T.F_SMALL_BOLD, cursor="hand2", bd=0,
+            font=T.F_SMALL_BOLD, cursor="hand2", bd=0, padx=T.px(1),
         )
         self._command = command
         self.bind("<Button-1>", lambda _e: command() if command else None)
