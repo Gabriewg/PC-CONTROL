@@ -15,6 +15,18 @@ android {
         versionName = "2.0.0"
     }
 
+    signingConfigs {
+        create("release") {
+            // Chave fixa do projeto: a mesma nas builds locais e no CI, para o
+            // APK novo instalar por cima do anterior sem desinstalar. E' a
+            // chave de debug padrao do Android (sideload, nao Play Store).
+            storeFile = file("poltergeist.jks")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -22,8 +34,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // assina com a chave de debug para poder instalar sem criar keystore
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

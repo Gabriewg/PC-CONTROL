@@ -5,6 +5,13 @@ O histórico detalhado de cada mudança fica no `git log`.
 
 ## [2.0.0] - 2026-11-25
 
+### Adicionado
+
+- A release do CI agora publica o **APK Android** junto do `Poltergeist.exe`
+  (cada um com o seu `.sha256`). O APK é compilado em `assembleRelease` e
+  assinado com a chave fixa do projeto, para atualizar por cima da versão
+  anterior.
+
 ### Mudado
 
 - **O projeto passou a se chamar Poltergeist.** Os nomes antigos (Local Control,

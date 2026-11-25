@@ -35,6 +35,10 @@ android/.idea/
 *.apk.idsig
 *.keystore
 *.jks
+# Chave fixa de assinatura do app (debug padrao do Android). Fica no repo de
+# proposito: todas as builds (locais e do CI) assinam igual, entao o APK novo
+# instala por cima do anterior. Nao serve para a Play Store.
+!android/app/poltergeist.jks
 
 # ------------------------------------------------------------------ build do Poltergeist.exe
 server/build/
@@ -45,6 +49,7 @@ server/brand.png
 # ------------------------------------------------------------------ capturas de tela e pacotes locais
 Screenshot_*.png
 *.zip
+*.apk.sha256
 
 # ------------------------------------------------------------------ editores / sistema
 .idea/

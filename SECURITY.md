@@ -126,7 +126,8 @@ dado no aviso de segurança, se você quiser.
 Esses arquivos **não fazem parte do `Poltergeist.exe`**: o executável é publicado
 sem PIN, sem chave privada e sem aparelhos. Eles são criados na primeira execução
 em `%LOCALAPPDATA%\Poltergeist` (ou em `server/` quando o servidor roda pelo
-Python). Cada release publica também `Poltergeist.exe.sha256`; confira com
+Python). Cada release publica também `Poltergeist.exe.sha256` e o APK Android
+com o `.sha256`; confira com
 `Get-FileHash .\Poltergeist.exe -Algorithm SHA256` antes de abrir.
 
 Quem já usava o nome antigo não fica sem os dados: na primeira execução a pasta

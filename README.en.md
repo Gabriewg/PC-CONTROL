@@ -47,6 +47,18 @@ devices and live sessions — no `.bat` files and no console.
 Closing the window minimizes it to the tray; use **Sair (Quit)** in the tray menu
 or the window footer to stop the server.
 
+### Android: the app
+
+Download `Poltergeist-<version>.apk` from the same
+[Releases](https://github.com/Gabriewg/Poltergeist/releases) page and install it
+on the phone (sideload). TLS 1.3 requires Android 10+; the app installs on 7.0+,
+but without TLS it cannot connect.
+
+The APK is signed with the project's fixed key (the Android debug key, kept in
+`android/app/poltergeist.jks`): a new version installs **over** the previous one
+without uninstalling or losing the pairing. That key is not valid for the Play
+Store.
+
 ### Where the data lives
 
 The executable bundles **no secrets**. PIN, certificate, devices and logs are
@@ -57,6 +69,9 @@ If you already used the old name (**PocketDesk**), nothing is lost: on first run
 the app copies `%LOCALAPPDATA%\PocketDesk` into the new folder (PIN, certificate
 and paired devices included) and logs it. The old folder is kept as a backup;
 delete it once you are sure. `POCKETDESK_DATA_DIR` is still accepted too.
+
+If you had the old app (`com.localcontrol`), you can uninstall it: it is a
+separate package and shares no data with the new one.
 
 If you used to run the server from Python, its data lives in `server/` (PIN,
 certificate and devices) and is separate from the executable's folder: after
@@ -170,9 +185,10 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 │   ├── gerar_icone.py          # generates icons from icon.jpg
 │   ├── build-apk.bat           # builds the debug APK
 │   ├── instalar-apk.bat        # installs on the phone via adb
+│   ├── app/poltergeist.jks     # fixed signing key (sideload)
 │   └── gradlew(.bat)           # Gradle Wrapper (pinned version)
 ├── .github/dependabot.yml      # automated pip and Gradle updates
-├── .github/workflows/build-exe.yml # builds Poltergeist.exe and the SHA-256
+├── .github/workflows/release.yml # builds the exe, the APK and the SHA-256
 ├── icon.jpg                    # source image for the app icon
 ├── conectar-usb.bat            # sets up the USB tunnel (adb reverse)
 ├── SECURITY.md                 # threat model and reporting channel
@@ -270,6 +286,9 @@ PIN policy: **with TLS** (default) the minimum is 4 characters; **without TLS**
 (`--no-tls`) it is **8 characters**, and the server refuses to start otherwise.
 
 ### 2. Build the Android app
+
+To just use it, download the APK from the release (see
+[Android: the app](#android-the-app)). The rest of this section is for building:
 
 ```powershell
 cd android

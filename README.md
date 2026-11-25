@@ -41,6 +41,18 @@ pareamento, PIN, aparelhos e sessões. Nada de abrir `.bat` nem console.
 Fechar (X) minimiza para a bandeja, como no AnyDesk. Para encerrar de verdade,
 use **Sair** no menu da bandeja ou no rodapé da janela.
 
+### Android: o app
+
+Baixe o `Poltergeist-<versão>.apk` na mesma página de
+[Releases](https://github.com/Gabriewg/Poltergeist/releases) e instale no
+celular (sideload). O TLS 1.3 exige Android 10+; o app instala no 7.0+, mas sem
+TLS não há conexão.
+
+O APK é assinado com a chave fixa do projeto (a de debug do Android, guardada
+em `android/app/poltergeist.jks`): a versão nova instala **por cima** da
+anterior, sem desinstalar nem perder o pareamento. Essa chave não serve para a
+Play Store.
+
 ### Onde ficam os dados
 
 O executável **não carrega nenhum segredo**. PIN, certificado, aparelhos e log
@@ -62,6 +74,9 @@ execução o app copia `%LOCALAPPDATA%\PocketDesk` para a pasta nova (PIN,
 certificado e aparelhos incluídos) e registra isso no log. A pasta antiga é
 mantida como cópia de segurança; apague-a quando tiver certeza. A variável
 `POCKETDESK_DATA_DIR` também continua sendo aceita.
+
+Se você tinha o app antigo (`com.localcontrol`), pode desinstalá-lo: ele é um
+pacote separado e não compartilha dados com o novo.
 
 Se você rodava pelo Python, os dados ficam em `server/` (PIN, certificado e
 aparelhos) e são independentes da pasta do executável: ao passar a usar o
@@ -138,9 +153,10 @@ antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 │   ├── gerar_icone.py          # gera os ícones a partir de icon.jpg
 │   ├── build-apk.bat           # compila o APK debug
 │   ├── instalar-apk.bat        # instala no celular via adb
+│   ├── app/poltergeist.jks     # chave fixa de assinatura (sideload)
 │   └── gradlew(.bat)           # Gradle Wrapper (versão fixa do projeto)
 ├── .github/dependabot.yml      # atualizações automáticas de pip e Gradle
-├── .github/workflows/build-exe.yml # gera o Poltergeist.exe e o SHA-256
+├── .github/workflows/release.yml # gera o exe, o APK e os SHA-256
 ├── icon.jpg                    # imagem de origem do ícone do app
 ├── conectar-usb.bat            # configura o túnel USB (adb reverse)
 ├── SECURITY.md                 # modelo de ameaça e canal de reporte
@@ -287,6 +303,9 @@ Se o servidor já estiver rodando, uma segunda instância apenas falha ao abrir 
 porta e sai. Para reiniciar, feche o processo `python.exe` antes.
 
 ## 2. Compilar o app Android
+
+Para só usar, baixe o APK da release (veja
+[Android: o app](#android-o-app)). O resto desta seção é para compilar:
 
 ```powershell
 cd android
@@ -603,9 +622,10 @@ vulnerabilidade, use o
 [Security Advisory privado](https://github.com/Gabriewg/Poltergeist/security/advisories/new);
 não abra issue pública.
 
-O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
-instalar por sideload, mas não para a Play Store). Para publicar oficialmente,
-gere uma keystore própria e configure o `signingConfig` do build de release.
+O APK das Releases é assinado com a chave fixa do projeto (debug do Android,
+em `android/app/poltergeist.jks`): serve para sideload e permite atualizar por
+cima, mas não para a Play Store. Para publicar oficialmente, gere uma keystore
+própria e configure o `signingConfig` do build de release.
 
 ## 8. Problemas comuns
 
