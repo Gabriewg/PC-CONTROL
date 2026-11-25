@@ -523,7 +523,7 @@ de 8+ caracteres; não use em rede não confiável.
 O modelo de ameaça completo — o que o projeto protege, o que **não** protege e o
 que está fora do escopo — está em [SECURITY.md](SECURITY.md). Para relatar uma
 vulnerabilidade, use o
-[Security Advisory privado](https://github.com/Gabriewg/PC-CONTROL/security/advisories/new);
+[Security Advisory privado](https://github.com/Gabriewg/PocketDesk/security/advisories/new);
 não abra issue pública.
 
 O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
