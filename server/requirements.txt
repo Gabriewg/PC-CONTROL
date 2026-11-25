@@ -1,7 +1,7 @@
 mss>=9.0
 numpy>=1.24
 opencv-python-headless>=4.8
-pillow>=10.0
+pillow>=13.0.0
 
 # TLS: gera o certificado ECDSA P-256 e calcula a impressao digital SPKI.
 cryptography>=42.0
