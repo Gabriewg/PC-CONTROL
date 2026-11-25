@@ -73,10 +73,11 @@ Se a mudança afetar o protocolo, atualize a seção **Protocolo** do `README.md
 O repositório é público e não deve conter dados de quem desenvolve. O
 `.gitignore` já cobre os principais casos, mas confira antes de abrir o PR:
 
-- `server/pin.txt`, PINs e senhas;
-- logs (`server/server.log*`, `server/server.err.log`);
+- `server/pin.txt`, `server/auth_state.json`, PINs e senhas;
+- `server/cert.pem`, `server/key.pem`, qualquer `*.pem`/`*.key` e keystores;
+- logs (`server/server.log*`, `server/server.err.log`, `*.log`);
 - IPs reais, nomes de máquina e caminhos com seu usuário;
-- `android/local.properties`, APKs, keystores e certificados;
+- `android/local.properties`, APKs;
 - capturas de tela do seu desktop (`server/pc*.png`, `Screenshot_*.png`).
 
 Se algum dado sensível for commitado por engano, avise o mantenedor — ele

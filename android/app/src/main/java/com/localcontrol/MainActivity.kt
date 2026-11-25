@@ -62,6 +62,7 @@ class MainActivity : Activity(), RemoteView.Listener {
     private var client: RemoteClient? = null
     private var presetIndex = 1
     private var connected = false
+    private var connecting = false
     private var scanning = false
     private var keyboardVisible = false
     private var monitorIndex = 1
@@ -230,8 +231,11 @@ class MainActivity : Activity(), RemoteView.Listener {
 
     // ------------------------------------------------------------ conexao
 
+    /** Impressao digital da chave publica salva para o perfil ativo. */
+    private fun spkiKey(): String = "spki_" + profileKeys[profile]
+
     private fun doConnect() {
-        if (client != null) return
+        if (client != null || connecting) return
 
         val host = hostInput.text.toString().trim()
         if (host.isEmpty()) {
@@ -240,6 +244,10 @@ class MainActivity : Activity(), RemoteView.Listener {
         }
         val port = portInput.text.toString().trim().toIntOrNull() ?: 8765
         val pin = pinInput.text.toString().trim()
+        if (pin.isEmpty()) {
+            toast("Informe o PIN configurado no PC")
+            return
+        }
 
         saveProfile()
         prefs.edit()
@@ -251,8 +259,94 @@ class MainActivity : Activity(), RemoteView.Listener {
         val preset = presets[presetIndex]
         connectStatus.text = "Conectando em $host:$port…"
         connectBtn.isEnabled = false
+        connecting = true
 
-        val c = RemoteClient(host, port, pin, preset.width, preset.quality, preset.fps)
+        val saved = prefs.getString(spkiKey(), "").orEmpty()
+        if (saved.isNotEmpty()) {
+            startClient(host, port, pin, preset, saved)
+            return
+        }
+
+        // Primeiro pareamento: le a chave publica do PC e pede confirmacao
+        // explicita antes de mandar qualquer dado.
+        connectStatus.text = "Verificando o certificado do PC…"
+        Thread {
+            try {
+                val fingerprint = RemoteClient.probe(host, port)
+                ui.post {
+                    if (isFinishing || isDestroyed) return@post
+                    showPairingDialog(host, port, pin, preset, fingerprint)
+                }
+            } catch (e: Exception) {
+                ui.post {
+                    if (isFinishing || isDestroyed) return@post
+                    connecting = false
+                    connectBtn.isEnabled = true
+                    handleFailure(RemoteClient.describe(e, host))
+                }
+            }
+        }.start()
+    }
+
+    private fun showPairingDialog(
+        host: String,
+        port: Int,
+        pin: String,
+        preset: Preset,
+        fingerprint: String
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Confirmar PC")
+            .setMessage(
+                "Impressão digital da chave do PC:\n\n" +
+                    LocalCrypto.formatFingerprint(fingerprint) +
+                    "\n\nConfira com a que aparece no servidor do PC. " +
+                    "Se for a primeira conexão, confirme. Se não bater, cancele."
+            )
+            .setPositiveButton("Confiar e conectar") { _, _ ->
+                prefs.edit().putString(spkiKey(), fingerprint).apply()
+                startClient(host, port, pin, preset, fingerprint)
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                connecting = false
+                connectBtn.isEnabled = true
+                connectStatus.text = "Conexão cancelada"
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun showMitmDialog(expected: String, actual: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Possível interceptação")
+            .setMessage(
+                "A chave pública do PC mudou.\n\n" +
+                    "Esperada:\n" + LocalCrypto.formatFingerprint(expected) + "\n\n" +
+                    "Recebida:\n" + LocalCrypto.formatFingerprint(actual) + "\n\n" +
+                    "Alguém pode estar interceptando a conexão. Só re-pareie se " +
+                    "você trocou o certificado do servidor de propósito."
+            )
+            .setPositiveButton("Re-parear") { _, _ ->
+                prefs.edit().putString(spkiKey(), actual).apply()
+                doConnect()
+            }
+            .setNegativeButton("Bloquear") { _, _ ->
+                connectStatus.text = "Conexão bloqueada: certificado diferente"
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun startClient(
+        host: String,
+        port: Int,
+        pin: String,
+        preset: Preset,
+        fingerprint: String
+    ) {
+        val c = RemoteClient(
+            host, port, pin, fingerprint, preset.width, preset.quality, preset.fps
+        )
         c.listener = object : RemoteClient.Listener {
 
             override fun onConnected() {
@@ -294,6 +388,21 @@ class MainActivity : Activity(), RemoteView.Listener {
                 handleFailure(message)
             }
 
+            override fun onFingerprintMismatch(expected: String, actual: String) {
+                if (client !== c) return
+                client = null
+                c.stop()
+                connected = false
+                connecting = false
+                connectBtn.isEnabled = true
+                resetTransientUi()
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                connectRoot.visibility = View.VISIBLE
+                remoteRoot.visibility = View.GONE
+                connectStatus.text = "Conexão bloqueada: a chave do PC mudou"
+                showMitmDialog(expected, actual)
+            }
+
             override fun onClosed() {
                 if (client !== c) return
                 handleFailure("conexão encerrada")
@@ -301,6 +410,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         }
 
         client = c
+        connecting = false
         c.start()
     }
 
@@ -327,6 +437,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         client = null
         c?.stop()
         connected = false
+        connecting = false
         connectBtn.isEnabled = true
         resetTransientUi()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -343,8 +454,22 @@ class MainActivity : Activity(), RemoteView.Listener {
         val viaTailscale = host.startsWith("100.")
 
         return when {
-            message.contains("pin", ignoreCase = true) ->
-                "O PIN tem que ser o mesmo configurado no servidor do PC (opcao --pin)."
+            message.contains("muitas tentativas", ignoreCase = true) ->
+                "Muitas tentativas erradas. Espere o tempo indicado e confira o PIN."
+
+            message.contains("pin", ignoreCase = true) ||
+                message.contains("autentic", ignoreCase = true) ->
+                "O PIN tem que ser o mesmo configurado no PC (server.py --set-pin)."
+
+            message.contains("TLS 1.3", ignoreCase = true) ->
+                "TLS 1.3 exige Android 10 ou mais novo e o servidor atualizado."
+
+            message.contains("certificado", ignoreCase = true) ||
+                message.contains("intercept", ignoreCase = true) ->
+                "A chave do PC não confere. Se você não trocou o certificado, não conecte."
+
+            message.contains("TLS", ignoreCase = true) ->
+                "O PC precisa estar rodando o servidor com TLS (sem --no-tls)."
 
             message.contains("recusada", ignoreCase = true) ||
                 message.contains("tempo esgotado", ignoreCase = true) ->
@@ -369,6 +494,7 @@ class MainActivity : Activity(), RemoteView.Listener {
         client = null
         c?.stop()
         connected = false
+        connecting = false
         remoteView.resetZoom()
         closeKeyboard()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

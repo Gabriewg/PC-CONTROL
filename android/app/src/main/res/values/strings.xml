@@ -5,7 +5,7 @@
     <string name="subtitle">Controle seu PC pela rede local</string>
     <string name="host_hint">IP do PC (ex: 192.168.0.10)</string>
     <string name="port_hint">Porta</string>
-    <string name="pin_hint">PIN (opcional)</string>
+    <string name="pin_hint">PIN do PC (definido com --set-pin)</string>
     <string name="connect">Conectar</string>
     <string name="scan">Procurar na rede</string>
     <string name="usb_help">USB: rode "adb reverse tcp:8765 tcp:8765" no PC e conecte em 127.0.0.1</string>

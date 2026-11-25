@@ -26,7 +26,11 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 - Mouse (absoluto e touchpad), teclado, rolagem, clique direito, arrastar e zoom.
 - Suporte a **múltiplos monitores**.
 - **Descoberta automática** do PC na rede local (UDP broadcast).
-- **PIN** opcional para autenticar a conexão.
+- **TLS 1.3** com certificado ECDSA P-256 e *pinning* da chave pública no app.
+- **PIN por desafio-resposta**: o PIN nunca trafega; o app assina um nonce com
+  HMAC-SHA256 e o servidor guarda apenas a chave derivada (PBKDF2).
+- **Limite de tentativas** por IP e global, com atraso progressivo e bloqueio
+  persistente entre reinícios.
 - Controle de fluxo: em rede ruim o servidor **descarta quadros** em vez de
   acumular atraso.
 - App sem dependências externas (usa apenas APIs do Android).
@@ -36,9 +40,11 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 ```
 .
 ├── server/                     # servidor Python (Windows)
-│   ├── server.py               # TCP, captura, protocolo e descoberta UDP
+│   ├── server.py               # TCP/TLS, captura, protocolo e descoberta UDP
+│   ├── security.py             # PIN (PBKDF2), desafio HMAC, rate limit e TLS
 │   ├── wininput.py             # injeção de mouse/teclado via SendInput
 │   ├── iniciar.bat             # cria a venv, instala deps e roda o servidor
+│   ├── definir-pin.bat         # define/troca o PIN (pede no terminal)
 │   ├── autostart.bat           # execução em segundo plano (usado pelo .vbs)
 │   ├── iniciar-oculto.vbs      # sobe o servidor sem janela de console
 │   ├── instalar-autostart.bat  # atalho na pasta Inicializar do Windows
@@ -48,8 +54,10 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 │   └── requirements.txt
 ├── android/                    # app Android (Kotlin)
 │   ├── app/src/main/java/com/localcontrol/
-│   │   ├── MainActivity.kt     # interface e perfis de conexão
-│   │   ├── RemoteClient.kt     # socket, handshake e recebimento do vídeo
+│   │   ├── MainActivity.kt     # interface, perfis e pareamento/MITM
+│   │   ├── RemoteClient.kt     # TLS, handshake e recebimento do vídeo
+│   │   ├── LocalCrypto.kt      # PBKDF2, HMAC e impressão digital SPKI
+│   │   ├── PinningTrustManager.kt # confia só na chave pública pareada
 │   │   ├── RemoteView.kt       # desenho do vídeo e gestos
 │   │   └── Discovery.kt        # descoberta UDP do servidor
 │   ├── gerar_icone.py          # gera os ícones a partir de icon.jpg
@@ -66,39 +74,50 @@ Funciona por **Wi-Fi** (mesma rede) e por **USB** (mais rápido e estável, usan
 
 | Parte | Requisitos |
 |---|---|
-| Servidor | Windows 10/11, Python 3.10+ |
-| App | Android 7.0+ (API 24) |
+| Servidor | Windows 10/11, Python 3.10+ (a biblioteca `cryptography` é instalada pelo `iniciar.bat`) |
+| App | **Android 10+** (API 29) para o TLS 1.3; o APK instala no 7.0+, mas conexões TLS exigem o 10+ |
 | Compilar o app | JDK 17 e Android SDK (API 34); o Gradle 8.7 é baixado pelo wrapper |
 
 ## 1. Rodar o servidor no PC
 
 Na primeira vez, dê duplo clique em **`server/iniciar.bat`**: ele cria a venv,
-instala as dependências e inicia o servidor. Ou faça manualmente:
+instala as dependências, pede para definir o PIN e inicia o servidor. Ou faça
+manualmente:
 
 ```powershell
 cd server
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe server.py --set-pin
 .venv\Scripts\python.exe server.py
 ```
 
-O servidor mostra a versão, os IPs da máquina e o PIN (quando configurado):
+O `--set-pin` pede o PIN duas vezes (não fica no histórico do shell). O servidor
+mostra a versão, os IPs e a impressão digital da chave pública:
 
 ```
-[2026-01-01 12:00:00] versao 1.2
+[2026-01-01 12:00:00] versao 1.3
+[2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
+[2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
+[2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=
 [2026-01-01 12:00:00] ouvindo em 192.168.0.10:8765
 [2026-01-01 12:00:00] pronto. Abra o app no celular e conecte.
-[2026-01-01 12:00:00] PIN ativo: ****
 ```
+
+A impressão digital é da **chave pública (SPKI)**, não do certificado inteiro.
+Se você renovar o certificado mantendo o `key.pem`, o app não precisa re-parear.
 
 ### Opções
 
 | Opção | Padrão | Descrição |
 |---|---|---|
 | `--port` | `8765` | Porta TCP |
+| `--discovery-port` | `8766` | Porta UDP da descoberta |
 | `--bind` | `0.0.0.0` | Interface de escuta |
 | `--monitor` | `1` | Monitor inicial (1 = principal) |
-| `--pin` | *(vazio)* | Exige PIN de 4+ dígitos |
+| `--set-pin` | — | Define/troca o PIN (pede no terminal) e sai |
+| `--no-tls` | — | Desliga o TLS (**só diagnóstico**; exige PIN de 8+ caracteres) |
+| `--cert` / `--key` | `cert.pem` / `key.pem` | Par certificado/chave alternativo |
 | `--width` | `1600` | Largura inicial do vídeo |
 | `--quality` | `70` | Qualidade JPEG inicial |
 | `--fps` | `30` | FPS inicial |
@@ -107,21 +126,40 @@ O servidor mostra a versão, os IPs da máquina e o PIN (quando configurado):
 ```powershell
 python server.py --port 8765 --width 1600 --quality 70 --fps 30
 python server.py --monitor 2
-python server.py --pin 1234
 python server.py --no-gpu
 ```
 
-### PIN sem expor no repositório
+### PIN e arquivos locais
 
-O PIN é uma configuração **local**. Use uma das formas:
+O PIN é uma configuração **local** e não deve ser passado por `--pin` (ficaria
+no histórico do shell). Use:
 
 ```powershell
-# na linha de comando
-server\iniciar.bat --pin 1234
-
-# ou em um arquivo server/pin.txt (já ignorado pelo Git)
-echo 1234> server\pin.txt
+server\definir-pin.bat
+# ou:
+cd server
+.venv\Scripts\python.exe server.py --set-pin
 ```
+
+O que fica na pasta `server/` (tudo ignorado pelo Git):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `pin.txt` | salt + chave derivada do PIN (PBKDF2-HMAC-SHA256, 210 mil iterações). **Não contém o PIN.** |
+| `cert.pem` | certificado autoassinado ECDSA P-256, validade de 5 anos |
+| `key.pem` | chave privada (permissões restritas à sua conta) |
+| `auth_state.json` | tentativas/bloqueios de PIN (persistem entre reinícios) |
+| `server.log` | log rotativo, com data/hora e IP de cada falha |
+
+Política do PIN:
+
+- **com TLS** (padrão): mínimo de 4 caracteres — um PIN de 4 dígitos só é aceito
+  porque o transporte é criptografado e há rate limit;
+- **sem TLS** (`--no-tls`): mínimo de **8 caracteres**. O servidor recusa subir
+  com um PIN curto nesse modo.
+
+Depois de trocar o PIN, reinicie o servidor e use o mesmo PIN no app (o app
+pergunta a digital do PC só no primeiro pareamento).
 
 ### Firewall
 
@@ -239,9 +277,10 @@ Dicas:
 
 - o PC precisa estar **ligado e sem dormir** (Painel de Controle → Energia);
 - o upload da sua internet limita o FPS (10 Mbps ≈ 10–15 fps no preset Médio);
-- rode o servidor com **`--pin`**;
-- o Tailscale criptografa o caminho, mas **não abra a porta 8765 no roteador**:
-  o protocolo deste projeto não tem TLS.
+- o PIN é obrigatório (defina com `definir-pin.bat`) e nunca trafega pela rede;
+- o Tailscale criptografa o caminho, e o **TLS 1.3** do projeto protege a
+  conexão mesmo na rede local. Ainda assim, **não abra a porta 8765 no
+  roteador**: o servidor foi feito para LAN/Tailscale, não para a internet.
 
 ## 4. Gestos
 
@@ -273,12 +312,27 @@ Toda mensagem nos dois sentidos:
 | Tipo | Direção | Payload |
 |---|---|---|
 | `0x01` VIDEO | servidor → app | `[2 bytes cursorX][2 bytes cursorY][JPEG]` |
-| `0x02` SCREEN | servidor → app | JSON `{name, version, w, h, monitor, monitors}` |
+| `0x02` SCREEN | servidor → app | JSON `{name, version, w, h, monitor, monitors, tls}` |
 | `0x03` CURSOR | servidor → app | `[2 bytes cursorX][2 bytes cursorY]` (só o cursor) |
-| `0x10` HELLO | app → servidor | JSON `{v, name, width, quality, fps, pin}` |
+| `0x10` HELLO | app → servidor | JSON `{v:2, name, width, quality, fps, mac}` |
 | `0x11` INPUT | app → servidor | JSON do evento |
 | `0x12` INFO | servidor → app | JSON `{error}` |
 | `0x13/0x14` PING/PONG | ambos | JSON `{ts}` (latência) |
+| `0x15` CHALLENGE | servidor → app | JSON `{v, kdf, iter, salt, nonce, auth}` |
+
+### Handshake (PIN por desafio-resposta)
+
+1. O app abre **TLS 1.3** e confere a chave pública (SPKI) do servidor com a que
+   foi salva no pareamento.
+2. O servidor envia `CHALLENGE` com um **nonce novo de 32 bytes**.
+3. O app calcula `chave = PBKDF2-HMAC-SHA256(pin, salt, 210000, 32)` e responde
+   `HELLO {mac: base64(HMAC-SHA256(chave, nonce))}`.
+4. O servidor confere com `hmac.compare_digest`. O PIN **nunca sai do aparelho**
+   e o MAC não pode ser reaproveitado, porque o nonce muda a cada conexão.
+
+O `salt` e o `nonce` não são segredos: quem os vê não consegue derivar a chave
+sem o PIN. Cada falha é registrada no log com data e IP, e tentativas repetidas
+sofrem atraso progressivo e bloqueio por IP e global.
 
 Eventos de entrada:
 
@@ -303,7 +357,26 @@ desconectar volta para a rotação normal.
 
 ```powershell
 cd server
-.venv\Scripts\python.exe test_client.py 127.0.0.1 8765
+.venv\Scripts\python.exe test_client.py 127.0.0.1 8765 40 SEU_PIN
+```
+
+O cliente faz o mesmo handshake do app (TLS 1.3 + desafio/HMAC). Para ver a
+impressão digital do servidor sem autenticar:
+
+```powershell
+.venv\Scripts\python.exe test_client.py 127.0.0.1 8765 0 "" --show-fingerprint
+```
+
+Para exigir a digital exata (pinning):
+
+```powershell
+.venv\Scripts\python.exe test_client.py 127.0.0.1 8765 40 SEU_PIN --fingerprint BASE64_DA_SPKI
+```
+
+Se o servidor estiver com `--no-tls` (só diagnóstico), use `--no-tls` também:
+
+```powershell
+.venv\Scripts\python.exe test_client.py 127.0.0.1 8765 40 "senha-de-8-ou-mais" --no-tls
 ```
 
 O cliente recebe 40 quadros, salva `frame.jpg` e move o cursor do PC para o
@@ -313,19 +386,36 @@ teste pode levar ~40 s; mexendo em uma janela ele termina bem mais rápido.
 
 ## 7. Segurança
 
-Este projeto foi feito para uso pessoal em rede confiável:
+O projeto agora usa **TLS 1.3 + PIN por desafio-resposta** por padrão:
 
-- **Sempre use `--pin`**, principalmente com o servidor exposto na rede local.
-- O protocolo **não tem TLS**: a imagem e as teclas trafegam sem criptografia.
-  Em rede local isso é aceitável; fora de casa, use **Tailscale** (ou outra VPN)
-  em vez de abrir portas no roteador.
-- O servidor dá **controle total** do PC a quem conectar. Rode-o apenas com uma
-  conta de usuário comum e nunca o deixe exposto na internet.
-- O PIN fica em `server/pin.txt` (ignorado pelo Git) ou na linha de comando —
-  nunca comite o seu.
-- O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
-  instalar por sideload, mas não para a Play Store). Para publicar oficialmente,
-  gere uma keystore própria e configure o `signingConfig` do build de release.
+- **Transporte criptografado.** Certificado ECDSA P-256 autoassinado, gerado na
+  primeira execução, com validade de 5 anos. O app confia na **chave pública
+  (SPKI)**, não no certificado inteiro: renovar o certificado com o mesmo
+  `key.pem` não exige re-parear.
+- **PIN nunca trafega.** O servidor manda um nonce novo por conexão; o app
+  responde `HMAC-SHA256(PBKDF2(pin), nonce)`. O `pin.txt` guarda apenas o
+  resultado da KDF (salt + chave), nunca o PIN.
+- **Sem MITM silencioso.** Se a chave do PC mudar, o app mostra as digitais
+  antiga e nova, **bloqueia** a conexão e só permite re-parear por ação
+  explícita do usuário. Não existe "continuar mesmo assim".
+- **Força bruta limitada.** Atraso progressivo (1 s, 2 s, 4 s…), bloqueio por IP
+  e global (útil no Tailscale, onde cada aparelho tem um IP), persistente entre
+  reinícios, e log de cada falha com data/IP.
+- **Mensagens limitadas.** O servidor recusa qualquer mensagem do app acima de
+  64 KB (o servidor é quem envia os JPEGs) e encerra conexões que não mandam o
+  `HELLO` em 5 s.
+- **Chave privada protegida.** `key.pem` tem permissões restritas à sua conta e
+  `*.pem`, `*.key`, `pin.txt`, `auth_state.json` e `*.log` estão no `.gitignore`.
+  **Nunca comite** esses arquivos: vazar `key.pem` anula o TLS.
+
+O servidor dá **controle total** do PC a quem autenticar. Rode-o com uma conta de
+usuário comum e não abra a porta 8765 no roteador — para acesso fora de casa use
+**Tailscale** (ou outra VPN). O `--no-tls` existe só para diagnóstico e exige PIN
+de 8+ caracteres; não use em rede não confiável.
+
+O APK das Releases é assinado com a chave de *debug* do Gradle (serve para
+instalar por sideload, mas não para a Play Store). Para publicar oficialmente,
+gere uma keystore própria e configure o `signingConfig` do build de release.
 
 ## 8. Problemas comuns
 
@@ -342,6 +432,11 @@ Este projeto foi feito para uso pessoal em rede confiável:
 | Teclado do app não digita | Toque em **Teclado** de novo (abre/fecha); o campo é invisível de propósito |
 | Clique duplo não registra | Toque duas vezes rápido |
 | Não conecta fora de casa | Use Tailscale e o IP `100.x.y.z`; o IP `192.168.x.x` só vale na mesma rede |
+| "autenticacao falhou" | O PIN do app é diferente do PC. Rode `definir-pin.bat` e use o mesmo PIN |
+| "muitas tentativas de PIN" | Bloqueio após falhas. Espere o tempo indicado; com o servidor parado, apague `server/auth_state.json` para zerar |
+| "A chave do PC mudou" | O `cert.pem`/`key.pem` foi regenerado. Confira a digital no PC e só re-pareie se foi você |
+| "TLS 1.3 exige Android 10+" | Aparelho antigo. O TLS 1.3 do app precisa de Android 10 (API 29) ou mais novo |
+| "o PC nao aceitou TLS 1.3" | O servidor está com `--no-tls` ou é uma versão antiga. Rode o `server.py` atualizado, sem `--no-tls` |
 
 ## 9. Roadmap
 
@@ -349,61 +444,51 @@ Este projeto foi feito para uso pessoal em rede confiável:
 - [ ] Áudio do PC → celular
 - [ ] Transferência de arquivos (arrastar e soltar)
 - [ ] Atalhos personalizados e macros
-- [ ] TLS com certificado local
+- [x] TLS 1.3 com certificado local e pinning da chave pública
+- [x] PIN por desafio-resposta + rate limit persistente
 - [ ] Servidor empacotado como `.exe` (PyInstaller), sem precisar de Python
 - [ ] Conexão sem digitar IP (fallback entre últimos endereços, MagicDNS e LAN)
 - [ ] Pareamento por QR Code (`localcontrol://host:porta?pin=...`)
 
-### TLS e proteção do PIN (planejado)
+### TLS e proteção do PIN (implementado)
 
-**Problema.** Hoje o protocolo é TCP puro: os quadros JPEG, o PIN e o texto
-digitado trafegam em texto claro. Em rede local confiável é aceitável, mas em
-Wi-Fi público qualquer aparelho na mesma rede consegue ler (ou alterar) o
-tráfego. O PIN autentica, mas não criptografa — ele viaja aberto no `HELLO`.
+**Servidor (`server/security.py` + `server/server.py`)**
 
-**Objetivo.** Criptografar o transporte sem mudar o formato das mensagens e sem
-depender de um certificado público (o servidor roda em IP local).
+- `pin.txt` guarda `{v, kdf, iterations, salt, key, requires_tls, created}`; a
+  chave é PBKDF2-HMAC-SHA256 com 210 mil iterações e salt de 16 bytes. O PIN
+  puro nunca é gravado.
+- Cada conexão recebe um nonce de 32 bytes (`0x15 CHALLENGE`); o `HELLO` traz
+  apenas `mac = HMAC-SHA256(chave, nonce)`, conferido com
+  `hmac.compare_digest`.
+- `cert.pem`/`key.pem` são gerados na primeira execução (ECDSA P-256, 5 anos) e
+  `key.pem` recebe ACL restrita no Windows. A impressão digital exibida é a
+  SHA-256 da **SPKI**.
+- `ssl.SSLContext` com `minimum_version = TLSv1_3`, `ssl=` no
+  `asyncio.start_server` e `ssl_handshake_timeout` de 5 s.
+- `RateLimiter` persistente: 5 falhas/5 min por IP → 5 min de bloqueio;
+  20 falhas/10 min globais → 5 min; atraso `2^(n-1)` limitado a 15 s; toda falha
+  vai para o log com data e IP.
+- Mensagens do app limitadas a 64 KB **antes** de ler o corpo; o `HELLO` tem
+  5 s para chegar.
 
-**Abordagem.** TLS com certificado autoassinado gerado na primeira execução e
-*pinning* da impressão digital no app.
+**App (`RemoteClient.kt`, `LocalCrypto.kt`, `PinningTrustManager.kt`)**
 
-Servidor (`server/server.py`):
+- `SSLSocket` com `TLSv1.3` e um `X509TrustManager` que compara a SPKI com a
+  salva em `spki_casa`/`spki_fora`; a verificação de hostname não é desligada
+  globalmente.
+- No primeiro pareamento, o app lê a digital, mostra um diálogo e só conecta
+  depois da confirmação do usuário.
+- Digital diferente → `PinningException` → diálogo de **possível interceptação**
+  com as digitais antiga/nova, conexão bloqueada e re-pareamento só por ação
+  explícita.
+- PBKDF2-HMAC-SHA256 implementado à mão (funciona na API 24) e conferido contra
+  vetores públicos (`password`/`salt`, 1 e 4096 iterações) e contra o
+  `hashlib` do Python.
 
-- gerar `server/cert.pem` + `server/key.pem` na primeira execução (biblioteca
-  `cryptography`), ou aceitar `--cert` / `--key` apontando para um par existente;
-- criar um `ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)`, carregar o certificado e
-  passar `ssl=ctx` para `asyncio.start_server(...)`;
-- imprimir no banner a **impressão digital SHA-256** do certificado, para o
-  usuário conferir no app;
-- manter a descoberta UDP fora do TLS (ela só devolve nome/porta/versão) e
-  adicionar `--no-tls` para diagnóstico e compatibilidade.
-
-App (`android/.../RemoteClient.kt`):
-
-- trocar `Socket` por `SSLSocket` com um `TrustManager` que aceita **apenas** o
-  certificado/impressão digital configurado (*pinning*) — nunca "confiar em
-  tudo";
-- no primeiro pareamento, exibir a impressão digital recebida e pedir
-  confirmação; guardá-la no `SharedPreferences`;
-- erro de certificado diferente deve gerar mensagem clara (possível MITM), sem
-  cair para conexão insegura.
-
-PIN (independente do TLS, melhoria barata):
-
-- limitar tentativas por IP (ex.: 5 em 5 minutos) com atraso progressivo;
-- comparar em tempo constante (`hmac.compare_digest`);
-- exigir no mínimo 6 dígitos quando rodar sem TLS.
-
-Critérios de aceite:
-
-1. app conecta com TLS e o vídeo/entrada funcionam normalmente;
-2. certificado diferente (MITM) → app recusa com erro claro;
-3. 5 PINs errados → bloqueio temporário, sem afetar conexões legítimas;
-4. `--no-tls` continua funcionando para depuração;
-5. nenhuma mudança no formato das mensagens (TLS é só o transporte).
-
-Impacto esperado: handshake de ~1–2 ms na conexão e custo de CPU baixo (AES-NI),
-sem perda perceptível de FPS.
+Critérios de aceite verificados com `server/test_client.py` e testes de
+integração: PIN correto conecta; PIN errado, replay de MAC e cabeçalho de 4 GB
+são recusados; `HELLO` pendurado cai em 5 s; bloqueio por IP persiste após
+reiniciar; `--no-tls` recusa PIN curto e aceita PIN de 8+.
 
 ## 10. Contribuindo
 

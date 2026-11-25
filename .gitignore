@@ -10,9 +10,17 @@ __pycache__/
 server/server.log*
 server/server.err.log
 server/pin.txt
+server/auth_state.json
 frame.jpg
 server/frame.jpg
 server/pc*.png
+
+# ------------------------------------------------------------------ segredos do TLS
+# A chave privada e o PIN NUNCA podem ir para o Git: vazar key.pem anula o TLS.
+*.pem
+*.key
+*.log
+pin.txt
 
 # ------------------------------------------------------------------ Android / Gradle
 android/.gradle/

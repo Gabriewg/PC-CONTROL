@@ -9,16 +9,16 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-rem PIN opcional: crie um arquivo pin.txt nesta pasta (fica fora do Git).
-set "PIN_ARG="
-if exist "pin.txt" (
-    set /p PIN=<pin.txt
-    if defined PIN set "PIN_ARG=--pin !PIN!"
+rem PIN obrigatorio: pin.txt e criado por definir-pin.bat (ou iniciar.bat no
+rem primeiro uso). O PIN nunca e passado pela linha de comando.
+if not exist "pin.txt" (
+    echo [%date% %time%] ERRO: PIN nao configurado. Rode definir-pin.bat>> "server.log"
+    exit /b 1
 )
 
 rem O proprio servidor grava em server.log (rotativo, com data/hora); por isso
 rem nao redirecionamos o stdout aqui (senao cada linha apareceria duas vezes).
 rem O stderr fica para erros fatais do interpretador (tracebacks de crash).
-".venv\Scripts\python.exe" server.py !PIN_ARG! 2>> "server.err.log"
+".venv\Scripts\python.exe" server.py %* 2>> "server.err.log"
 
 endlocal

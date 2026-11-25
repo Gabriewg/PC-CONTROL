@@ -15,12 +15,21 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocket
 
 /**
- * Cliente TCP do servidor do PC.
+ * Cliente do servidor do PC.
+ *
+ * O transporte e' TLS 1.3 com pinning da chave publica (SPKI): o app so fala
+ * com o PC cuja impressao digital foi confirmada no pareamento. Dentro do TLS,
+ * o PIN nunca trafega — o app responde ao nonce do servidor com
+ * HMAC-SHA256(PBKDF2(pin), nonce).
  *
  * Uma thread le os quadros (JPEG) e decodifica em dois bitmaps alternados,
  * outra thread envia os eventos de entrada e uma terceira mede a latencia.
@@ -29,6 +38,7 @@ class RemoteClient(
     private val host: String,
     private val port: Int,
     private val pin: String,
+    private val expectedFingerprint: String?,
     var width: Int,
     var quality: Int,
     var fps: Int
@@ -42,6 +52,9 @@ class RemoteClient(
         fun onStats(fps: Int, latencyMs: Int)
         fun onError(message: String)
         fun onClosed()
+
+        /** A chave do PC mudou (possivel MITM). Nao conecte sem acao do usuario. */
+        fun onFingerprintMismatch(expected: String, actual: String) {}
     }
 
     var listener: Listener? = null
@@ -94,28 +107,41 @@ class RemoteClient(
     private fun runLoop() {
         var s: Socket? = null
         try {
-            s = Socket()
-            s.tcpNoDelay = true
-            s.receiveBufferSize = 1 shl 20
-            s.connect(InetSocketAddress(host, port), 6000)
-            s.soTimeout = 15000
-            socket = s
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                throw IOException("TLS 1.3 exige Android 10 ou mais novo")
+            }
 
-            val o = DataOutputStream(BufferedOutputStream(s.getOutputStream(), 32 * 1024))
-            out = o
+            val tls = openTls()
+            s = tls
+            socket = tls
+
+            val input = DataInputStream(BufferedInputStream(tls.getInputStream(), 512 * 1024))
+            out = DataOutputStream(BufferedOutputStream(tls.getOutputStream(), 32 * 1024))
+
+            // 1) desafio: nonce novo por conexao (impede reaproveitar o MAC)
+            val challenge = readChallenge(input) ?: return
+
+            val salt = LocalCrypto.base64Decode(challenge.getString("salt"))
+            val nonce = LocalCrypto.base64Decode(challenge.getString("nonce"))
+            val iterations = challenge.optInt("iter", 210_000)
+            val key = LocalCrypto.pbkdf2Sha256(
+                pin.toByteArray(Charsets.UTF_8), salt, iterations, 32
+            )
+            val mac = LocalCrypto.base64Encode(LocalCrypto.hmacSha256(key, nonce))
 
             writer = Thread({ writeLoop() }, "lc-writer").apply {
                 isDaemon = true
                 start()
             }
 
+            // 2) HELLO com o MAC. O PIN em si nunca sai do aparelho.
             val hello = JSONObject()
-                .put("v", 1)
+                .put("v", 2)
                 .put("name", Build.MODEL)
                 .put("width", width)
                 .put("quality", quality)
                 .put("fps", fps)
-                .put("pin", pin)
+                .put("mac", mac)
             sendJson(TYPE_HELLO, hello)
 
             // so mede latencia depois do handshake, senao o ping chega antes do HELLO
@@ -124,11 +150,9 @@ class RemoteClient(
                 start()
             }
 
-            val input = DataInputStream(BufferedInputStream(s.getInputStream(), 512 * 1024))
-
             while (running) {
                 val len = input.readInt()
-                if (len < 1 || len > 16 * 1024 * 1024) throw IOException("quadro invalido ($len)")
+                if (len < 1 || len > MAX_INCOMING) throw IOException("quadro invalido ($len)")
                 val type = input.readUnsignedByte()
                 val payload = ByteArray(len - 1)
                 input.readFully(payload)
@@ -176,8 +200,13 @@ class RemoteClient(
                 }
             }
         } catch (e: Exception) {
+            val pinFailure = findPinningFailure(e)
             if (running) {
-                post { listener?.onError(describe(e)) }
+                if (pinFailure != null) {
+                    post { listener?.onFingerprintMismatch(pinFailure.expected, pinFailure.actual) }
+                } else {
+                    post { listener?.onError(describe(e, host)) }
+                }
             }
         } finally {
             running = false
@@ -188,6 +217,50 @@ class RemoteClient(
             queue.clear()
             post { listener?.onClosed() }
         }
+    }
+
+    /** Abre o socket TLS 1.3 com pinning da SPKI. */
+    private fun openTls(): SSLSocket {
+        val ssl = tlsContext(expectedFingerprint).socketFactory.createSocket() as SSLSocket
+        ssl.tcpNoDelay = true
+        ssl.receiveBufferSize = 1 shl 20
+        ssl.connect(InetSocketAddress(host, port), 6000)
+        ssl.soTimeout = 15000
+        val params = ssl.sslParameters
+        params.protocols = arrayOf("TLSv1.3")
+        ssl.sslParameters = params
+        ssl.startHandshake()
+        return ssl
+    }
+
+    /** Le a primeira mensagem: o desafio (ou um erro, como bloqueio por IP). */
+    private fun readChallenge(input: DataInputStream): JSONObject? {
+        while (running) {
+            val len = input.readInt()
+            if (len < 1 || len > MAX_INCOMING) throw IOException("mensagem invalida ($len)")
+            val type = input.readUnsignedByte()
+            val payload = ByteArray(len - 1)
+            input.readFully(payload)
+
+            when (type) {
+                TYPE_CHALLENGE -> {
+                    val challenge = JSONObject(String(payload, Charsets.UTF_8))
+                    if (!challenge.optBoolean("auth", true)) {
+                        throw IOException("o PC nao tem PIN configurado")
+                    }
+                    return challenge
+                }
+
+                TYPE_INFO -> {
+                    val info = JSONObject(String(payload, Charsets.UTF_8))
+                    post { listener?.onError(info.optString("error", "erro do servidor")) }
+                    return null
+                }
+
+                else -> throw IOException("resposta inesperada do servidor (0x%02x)".format(type))
+            }
+        }
+        return null
     }
 
     private fun writeLoop() {
@@ -336,26 +409,6 @@ class RemoteClient(
 
     // ------------------------------------------------------------ util
 
-    /** Traduz a falha de rede para algo que o usuario entenda (sem culpar o Tailscale). */
-    private fun describe(e: Exception): String = when (e) {
-        is java.net.SocketTimeoutException ->
-            "o PC nao respondeu (tempo esgotado)"
-        is java.net.ConnectException ->
-            "conexao recusada: o servidor esta rodando no PC?"
-        is java.net.NoRouteToHostException ->
-            "endereco inalcancavel: IP errado ou aparelho em outra rede"
-        is java.net.UnknownHostException ->
-            "endereco invalido: ${e.message ?: host}"
-        is java.net.SocketException -> {
-            val m = e.message.orEmpty()
-            if (m.contains("reset", true) || m.contains("abort", true))
-                "o PC encerrou a conexao"
-            else
-                m.ifEmpty { "conexao interrompida" }
-        }
-        else -> e.message ?: e.javaClass.simpleName
-    }
-
     private val main = Handler(Looper.getMainLooper())
 
     private fun post(block: () -> Unit) {
@@ -371,5 +424,81 @@ class RemoteClient(
         const val TYPE_INFO = 0x12
         const val TYPE_PING = 0x13
         const val TYPE_PONG = 0x14
+        const val TYPE_CHALLENGE = 0x15
+
+        private const val MAX_INCOMING = 16 * 1024 * 1024
+
+        private fun tlsContext(expected: String?): SSLContext {
+            val ctx = SSLContext.getInstance("TLS")
+            ctx.init(null, arrayOf(PinningTrustManager(expected)), SecureRandom())
+            return ctx
+        }
+
+        /**
+         * Conecta so para ler a SPKI do servidor (primeiro pareamento).
+         * Nao autentica e nao envia nada.
+         */
+        fun probe(host: String, port: Int, timeoutMs: Int = 6000): String {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                throw IOException("TLS 1.3 exige Android 10 ou mais novo")
+            }
+            val ssl = tlsContext(null).socketFactory.createSocket() as SSLSocket
+            try {
+                ssl.connect(InetSocketAddress(host, port), timeoutMs)
+                ssl.soTimeout = timeoutMs
+                val params = ssl.sslParameters
+                params.protocols = arrayOf("TLSv1.3")
+                ssl.sslParameters = params
+                ssl.startHandshake()
+                val cert = ssl.session.peerCertificates.firstOrNull() as? X509Certificate
+                    ?: throw IOException("o PC nao apresentou certificado")
+                return LocalCrypto.spkiFingerprint(cert)
+            } finally {
+                try {
+                    ssl.close()
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        private fun findPinningFailure(error: Throwable): PinningException? {
+            var atual: Throwable? = error
+            var depth = 0
+            while (atual != null && depth < 8) {
+                if (atual is PinningException) return atual
+                atual = atual.cause
+                depth++
+            }
+            return null
+        }
+
+        /** Traduz a falha de rede para algo que o usuario entenda (sem culpar o Tailscale). */
+        fun describe(e: Exception, host: String): String = when (e) {
+            is java.net.SocketTimeoutException ->
+                "o PC nao respondeu (tempo esgotado)"
+            is java.net.ConnectException ->
+                "conexao recusada: o servidor esta rodando no PC?"
+            is java.net.NoRouteToHostException ->
+                "endereco inalcancavel: IP errado ou aparelho em outra rede"
+            is java.net.UnknownHostException ->
+                "endereco invalido: ${e.message ?: host}"
+            is javax.net.ssl.SSLHandshakeException -> {
+                val detalhe = e.cause?.message ?: e.message.orEmpty()
+                if (detalhe.contains("protocol", true) || detalhe.contains("TLS", true))
+                    "o PC nao aceitou TLS 1.3 (servidor atualizado e Android 10+)"
+                else
+                    "falha no TLS: ${detalhe.ifEmpty { "handshake" }}"
+            }
+            is javax.net.ssl.SSLException ->
+                "falha no TLS: ${e.message ?: "conexao segura"}"
+            is java.net.SocketException -> {
+                val m = e.message.orEmpty()
+                if (m.contains("reset", true) || m.contains("abort", true))
+                    "o PC encerrou a conexao"
+                else
+                    m.ifEmpty { "conexao interrompida" }
+            }
+            else -> e.message ?: e.javaClass.simpleName
+        }
     }
 }

@@ -11,19 +11,25 @@ Dois motores de captura:
   * GDI/BitBlt (mss)                 - fallback universal
 
 Protocolo (os dois sentidos): [4 bytes tamanho][1 byte tipo][payload]
-  0x01 VIDEO   : 2 bytes cursorX + 2 bytes cursorY (0..65535) + JPEG
-  0x02 SCREEN  : JSON com resolucao/tela/monitores
-  0x03 CURSOR  : 2 bytes X + 2 bytes Y (atualizacao barata do cursor)
-  0x10 HELLO   : JSON enviado pelo app ao conectar
-  0x11 INPUT   : JSON com evento de mouse/teclado
-  0x13 PING    : JSON {"ts": ...}   (cliente -> servidor)
-  0x14 PONG    : JSON {"ts": ...}   (servidor -> cliente)
+  0x01 VIDEO    : 2 bytes cursorX + 2 bytes cursorY (0..65535) + JPEG
+  0x02 SCREEN   : JSON com resolucao/tela/monitores
+  0x03 CURSOR   : 2 bytes X + 2 bytes Y (atualizacao barata do cursor)
+  0x10 HELLO    : JSON do app: nome/tela + "mac" (HMAC-SHA256 do nonce)
+  0x11 INPUT    : JSON com evento de mouse/teclado
+  0x13 PING     : JSON {"ts": ...}   (cliente -> servidor)
+  0x14 PONG     : JSON {"ts": ...}   (servidor -> cliente)
+  0x15 CHALLENGE: JSON {"nonce","salt","iter","kdf"} enviado antes do HELLO
+
+O PIN nunca trafega: o servidor manda um nonce novo a cada conexao e o app
+responde com HMAC-SHA256(chave_derivada_do_PIN, nonce). O pin.txt guarda apenas
+o resultado da KDF (PBKDF2-HMAC-SHA256 com salt).
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import io
 import json
 import logging
@@ -35,6 +41,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import mss
 import numpy as np
@@ -51,6 +58,7 @@ except Exception:  # pragma: no cover - opcional
 
 from PIL import Image
 
+import security
 import wininput
 
 # ------------------------------------------------------------------ constantes
@@ -63,10 +71,15 @@ MSG_INPUT = 0x11
 MSG_INFO = 0x12
 MSG_PING = 0x13
 MSG_PONG = 0x14
+MSG_CHALLENGE = 0x15
 
 DISCOVERY_PORT = 8766
 DISCOVERY_MAGIC = b"LOCALCONTROL_DISCOVER"
-MAX_MESSAGE = 8 * 1024 * 1024
+# Teto das mensagens que o app manda. O servidor e quem envia os JPEGs; aceitar
+# qualquer tamanho do cliente permitiria derrubar o PC com um cabecalho falso.
+MAX_APP_MESSAGE = 64 * 1024
+# Tempo para o app responder ao desafio e mandar o HELLO.
+HELLO_TIMEOUT = 5.0
 KEEPALIVE = 1.0  # reenvia o ultimo quadro parado a cada 1s (seguranca)
 
 # Controle de fluxo. Se o cliente nao acompanha (4G, Wi-Fi ruim), o buffer de
@@ -82,11 +95,16 @@ FLOW_LOW_BYTES = 32 * 1024
 # fluxo so reagiria tarde demais (latencia alta mesmo "pulando frames").
 SEND_BUFFER_BYTES = 128 * 1024
 
-VERSION = "1.2"
+VERSION = "1.3"
 
-# O log fica ao lado do server.py (nao depende do diretorio atual) e rotaciona
-# sozinho: server.log + server.log.1 .. server.log.3.
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.log")
+# Arquivos locais ficam ao lado do server.py (nao dependem do diretorio atual).
+# Nenhum deles vai para o Git: veja .gitignore.
+BASE_DIR = Path(__file__).resolve().parent
+LOG_PATH = str(BASE_DIR / "server.log")
+PIN_PATH = BASE_DIR / "pin.txt"
+CERT_PATH = BASE_DIR / "cert.pem"
+KEY_PATH = BASE_DIR / "key.pem"
+STATE_PATH = BASE_DIR / "auth_state.json"
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUPS = 3
 
@@ -147,10 +165,13 @@ def pack_msg(mtype: int, payload: bytes = b"") -> bytes:
     return struct.pack(">I", len(payload) + 1) + bytes((mtype,)) + payload
 
 
-async def read_msg(reader: asyncio.StreamReader) -> tuple[int, bytes]:
+async def read_msg(
+    reader: asyncio.StreamReader, max_size: int = MAX_APP_MESSAGE
+) -> tuple[int, bytes]:
     header = await reader.readexactly(4)
     (size,) = struct.unpack(">I", header)
-    if size < 1 or size > MAX_MESSAGE:
+    # O tamanho e conferido ANTES de alocar/ler o corpo.
+    if size < 1 or size > max_size:
         raise ValueError(f"tamanho de mensagem invalido: {size}")
     body = await reader.readexactly(size)
     return body[0], body[1:]
@@ -418,9 +439,27 @@ class Session:
     monitor: int = 1
 
 
+def _clamp_int(value: object, default: int, low: int, high: int) -> int:
+    """Converte um campo do HELLO sem deixar um JSON malicioso derrubar a conexao."""
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
 class Server:
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        pin_record: security.PinRecord,
+        limiter: security.RateLimiter,
+        tls_enabled: bool,
+    ) -> None:
         self.args = args
+        self.pin_record = pin_record
+        self.limiter = limiter
+        self.tls_enabled = tls_enabled
         self.grabber = Grabber(use_gpu=not args.no_gpu)
         self.grabber.monitor_index = args.monitor
         self.mouse = wininput.Mouse()
@@ -562,6 +601,7 @@ class Server:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         peer = writer.get_extra_info("peername") or ("?", 0)
+        ip = str(peer[0])
         conn = Conn(reader, writer)
 
         # Teto no buffer do kernel: mantem a fila de envio curta para o controle
@@ -573,46 +613,90 @@ class Server:
             except OSError:
                 pass
 
-        log(f"conexao de {peer[0]}")
+        log(f"conexao de {ip}")
 
         stream_task: asyncio.Task | None = None
         try:
-            # Primeira mensagem precisa ser HELLO; pings ocasionais sao respondidos
-            # e ignorados para nao derrubar a conexao por causa de ordem de envio.
-            deadline = asyncio.get_running_loop().time() + 15
-            while True:
-                restante = deadline - asyncio.get_running_loop().time()
-                if restante <= 0:
-                    raise asyncio.TimeoutError()
-                mtype, payload = await asyncio.wait_for(read_msg(reader), timeout=restante)
-                if mtype == MSG_HELLO:
-                    break
-                if mtype == MSG_PING:
-                    await conn.send(MSG_PONG, payload)
-                    continue
-                await conn.send_json(MSG_INFO, {"error": "esperado HELLO"})
+            bloqueio = self.limiter.blocked_for(ip)
+            if bloqueio > 0:
+                await conn.send_json(
+                    MSG_INFO,
+                    {
+                        "error": "muitas tentativas de PIN; "
+                        f"tente de novo em {int(bloqueio) + 1}s"
+                    },
+                )
+                log(f"conexao de {ip} recusada: bloqueado por mais {bloqueio:.0f}s")
                 return
 
-            hello = json.loads(payload)
-            if self.args.pin and str(hello.get("pin", "")) != str(self.args.pin):
-                await conn.send_json(MSG_INFO, {"error": "pin incorreto"})
-                log("PIN incorreto, conexao recusada")
+            # 1) Desafio: nonce novo a cada conexao. Sem ele, um MAC capturado
+            #    nao pode ser reaproveitado (replay).
+            nonce = security.new_nonce()
+            await conn.send_json(
+                MSG_CHALLENGE, security.challenge_json(self.pin_record, nonce)
+            )
+
+            # 2) HELLO com HMAC-SHA256(chave_do_PIN, nonce), dentro do prazo.
+            mtype, payload = await asyncio.wait_for(
+                read_msg(reader), timeout=HELLO_TIMEOUT
+            )
+            if mtype != MSG_HELLO:
+                await conn.send_json(MSG_INFO, {"error": "esperado HELLO"})
+                log(f"conexao de {ip} recusada: primeira mensagem nao foi HELLO")
                 return
+
+            try:
+                hello = json.loads(payload)
+            except json.JSONDecodeError:
+                hello = None
+            if not isinstance(hello, dict):
+                await conn.send_json(MSG_INFO, {"error": "HELLO invalido"})
+                log(f"HELLO invalido de {ip}")
+                return
+
+            mac = hello.get("mac")
+            if not isinstance(mac, str) or not security.verify_mac(
+                self.pin_record, nonce, mac
+            ):
+                info = self.limiter.failure(ip)
+                extra = (
+                    f", bloqueado por {info.blocked_for:.0f}s"
+                    if info.blocked_for > 0
+                    else ""
+                )
+                log(
+                    f"autenticacao falhou de {ip} "
+                    f"(tentativa {info.attempts}, atraso {info.delay:.0f}s{extra})"
+                )
+                try:
+                    await conn.send_json(
+                        MSG_INFO, {"error": "autenticacao falhou", "delay": info.delay}
+                    )
+                except (ConnectionError, OSError):
+                    pass
+                # atraso progressivo (1s, 2s, 4s...): encarece a forca bruta
+                await asyncio.sleep(info.delay)
+                return
+
+            self.limiter.success(ip)
 
             session = Session(
                 name=str(hello.get("name", "celular"))[:32],
-                width=max(320, min(2560, int(hello.get("width", self.args.width)))),
-                quality=max(20, min(95, int(hello.get("quality", self.args.quality)))),
-                fps=max(5, min(60, int(hello.get("fps", self.args.fps)))),
-                monitor=int(hello.get("monitor", self.args.monitor)),
+                width=_clamp_int(hello.get("width"), self.args.width, 320, 2560),
+                quality=_clamp_int(hello.get("quality"), self.args.quality, 20, 95),
+                fps=_clamp_int(hello.get("fps"), self.args.fps, 5, 60),
+                monitor=_clamp_int(hello.get("monitor"), self.args.monitor, 1, 16),
             )
-            if session.monitor <= 0:
-                session.monitor = 1
+            monitors = self.grabber.monitors()
+            ultimo = len(monitors) - 1
+            if ultimo >= 1:
+                session.monitor = min(max(1, session.monitor), ultimo)
+            else:
+                session.monitor = 0
             self.grabber.monitor_index = session.monitor
             self.grabber.reset_cache()
 
-            monitors = self.grabber.monitors()
-            mon = monitors[min(session.monitor, len(monitors) - 1)]
+            mon = monitors[session.monitor]
             self.mouse.set_bbox((mon["left"], mon["top"], mon["width"], mon["height"]))
 
             await conn.send_json(
@@ -623,11 +707,12 @@ class Server:
                     "w": mon["width"],
                     "h": mon["height"],
                     "monitor": session.monitor,
-                    "monitors": len(monitors) - 1,
+                    "monitors": max(0, ultimo),
+                    "tls": self.tls_enabled,
                 },
             )
             log(
-                f"app conectado: {session.name} | {session.width}px "
+                f"app conectado: {session.name} ({ip}) | {session.width}px "
                 f"q{session.quality} {session.fps}fps"
             )
 
@@ -637,11 +722,14 @@ class Server:
         except asyncio.IncompleteReadError:
             pass
         except asyncio.TimeoutError:
-            log("timeout esperando HELLO")
+            log(f"timeout esperando o HELLO de {ip} ({HELLO_TIMEOUT:.0f}s)")
+        except ValueError as exc:
+            # cabecalho de tamanho invalido (tentativa de alocar memoria demais)
+            log(f"conexao de {ip} encerrada: {exc}")
         except (ConnectionError, OSError):
             pass
         except Exception as exc:  # noqa: BLE001
-            log(f"erro na conexao: {exc!r}")
+            log(f"erro na conexao de {ip}: {exc!r}")
         finally:
             if stream_task is not None:
                 stream_task.cancel()
@@ -650,13 +738,14 @@ class Server:
                 except BaseException:
                     pass
             conn.close()
-            log(f"desconectado {peer[0]}")
+            log(f"desconectado {ip}")
 
     # -------------------------------------------------------------- descoberta
 
     async def discovery(self) -> None:
         loop = asyncio.get_running_loop()
         port = self.args.port
+        dport = self.args.discovery_port
 
         class Protocol(asyncio.DatagramProtocol):
             def connection_made(self, transport) -> None:  # type: ignore[override]
@@ -670,25 +759,32 @@ class Server:
                     "name": socket.gethostname(),
                     "port": port,
                     "version": VERSION,
+                    "tls": self.tls_enabled,
                 }
                 self.transport.sendto(json.dumps(info).encode(), addr)
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.bind(("0.0.0.0", DISCOVERY_PORT))
+        sock.bind(("0.0.0.0", dport))
         sock.setblocking(False)
         transport, _ = await loop.create_datagram_endpoint(Protocol, sock=sock)
         self._discovery_transport = transport
-        log(f"descoberta UDP ativa na porta {DISCOVERY_PORT}")
+        log(f"descoberta UDP ativa na porta {dport}")
 
     # -------------------------------------------------------------- run
 
-    async def run(self) -> None:
+    async def run(self, ssl_ctx=None) -> None:
+        extra = {}
+        if ssl_ctx is not None:
+            extra = {"ssl": ssl_ctx, "ssl_handshake_timeout": HELLO_TIMEOUT}
         server = await asyncio.start_server(
-            self.handle_client, host=self.args.bind, port=self.args.port
+            self.handle_client, host=self.args.bind, port=self.args.port, **extra
         )
-        await self.discovery()
+        try:
+            await self.discovery()
+        except OSError as exc:
+            log(f"aviso: descoberta UDP indisponivel ({exc}); conecte pelo IP")
 
         for ip in local_ips():
             log(f"ouvindo em {ip}:{self.args.port}")
@@ -697,11 +793,6 @@ class Server:
             "USB: rode  adb reverse tcp:%d tcp:%d  e use 127.0.0.1"
             % (self.args.port, self.args.port)
         )
-        if self.args.pin:
-            log(f"PIN ativo: {self.args.pin}")
-        else:
-            log("AVISO: sem PIN! Qualquer aparelho na mesma rede pode ver a tela")
-            log("       e controlar este PC. Reinicie com: --pin 1234")
 
         async with server:
             await server.serve_forever()
@@ -728,16 +819,76 @@ def local_ips() -> list[str]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Servidor de controle remoto local")
+    parser = argparse.ArgumentParser(
+        description="Servidor de controle remoto local",
+        epilog="O PIN e configurado uma vez com --set-pin e fica salvo em pin.txt.",
+    )
     parser.add_argument("--port", type=int, default=8765, help="porta TCP (padrao 8765)")
+    parser.add_argument(
+        "--discovery-port",
+        type=int,
+        default=DISCOVERY_PORT,
+        help=f"porta UDP de descoberta (padrao {DISCOVERY_PORT})",
+    )
     parser.add_argument("--bind", default="0.0.0.0", help="interface de escuta")
     parser.add_argument("--monitor", type=int, default=1, help="monitor inicial (1 = principal)")
-    parser.add_argument("--pin", default="", help="exigir PIN de 4+ digitos")
     parser.add_argument("--width", type=int, default=1600, help="largura inicial do video")
     parser.add_argument("--quality", type=int, default=70, help="qualidade JPEG inicial")
     parser.add_argument("--fps", type=int, default=30, help="fps inicial")
     parser.add_argument("--no-gpu", action="store_true", help="forcar captura GDI (mss)")
+    parser.add_argument(
+        "--set-pin",
+        action="store_true",
+        help="define/troca o PIN (pede no terminal) e sai",
+    )
+    parser.add_argument(
+        "--pin",
+        default="",
+        help="PIN para usar junto de --set-pin (evite: fica no historico)",
+    )
+    parser.add_argument(
+        "--no-tls",
+        action="store_true",
+        help="desliga o TLS (APENAS diagnostico; exige PIN de 8+ caracteres)",
+    )
+    parser.add_argument("--cert", default=str(CERT_PATH), help="certificado PEM")
+    parser.add_argument("--key", default=str(KEY_PATH), help="chave privada PEM")
     return parser.parse_args()
+
+
+def configure_pin(tls_enabled: bool, provided: str) -> int:
+    """Cria/troca o PIN e devolve o codigo de saida do processo."""
+    if provided:
+        pin = provided
+    else:
+        try:
+            pin = getpass.getpass("Novo PIN: ")
+            repetido = getpass.getpass("Repita o PIN: ")
+        except (KeyboardInterrupt, EOFError):
+            print("\ncancelado.")
+            return 1
+        if pin != repetido:
+            print("os PINs nao conferem.")
+            return 1
+
+    try:
+        record = security.save_pin(PIN_PATH, pin, tls_enabled=tls_enabled)
+    except (ValueError, security.PinFileError) as exc:
+        print(f"erro: {exc}")
+        return 1
+
+    modo = "com TLS" if tls_enabled else "SEM TLS (--no-tls)"
+    minimo = security.MIN_PIN_TLS if tls_enabled else security.MIN_PIN_PLAIN
+    print(f"PIN salvo em {PIN_PATH} ({modo}).")
+    print(
+        "O PIN nao e gravado: pin.txt guarda apenas a chave derivada "
+        f"(PBKDF2-HMAC-SHA256, {record.iterations} iteracoes)."
+    )
+    print(f"Minimo neste modo: {minimo} caracteres.")
+    if record.requires_tls:
+        print("PIN curto: so sera aceito com TLS ativo.")
+    print("Reinicie o servidor para o novo PIN valer.")
+    return 0
 
 
 def main() -> None:
@@ -749,6 +900,47 @@ def main() -> None:
     _silence_comtypes_shutdown()
 
     args = parse_args()
+    tls_enabled = not args.no_tls
+    cert_path = Path(args.cert)
+    key_path = Path(args.key)
+
+    if args.pin and not args.set_pin:
+        print("erro: --pin na linha de comando ficaria visivel no historico.")
+        print("       use  server.py --set-pin  (o PIN fica salvo em pin.txt).")
+        raise SystemExit(2)
+
+    if args.set_pin:
+        raise SystemExit(configure_pin(tls_enabled, args.pin))
+
+    try:
+        pin_record = security.load_pin(PIN_PATH)
+    except security.PinFileError as exc:
+        print(f"erro: {exc}")
+        raise SystemExit(1)
+
+    if pin_record is None:
+        print(f"nenhum PIN configurado ({PIN_PATH}).")
+        print("rode:  server.py --set-pin")
+        raise SystemExit(1)
+
+    if pin_record.requires_tls and not tls_enabled:
+        print("erro: o PIN salvo e curto (4 a 7 caracteres) e exige TLS.")
+        print("       rode com TLS, ou defina um PIN de 8+ caracteres:")
+        print("       server.py --no-tls --set-pin")
+        raise SystemExit(1)
+
+    ssl_ctx = None
+    fingerprint = ""
+    if tls_enabled:
+        try:
+            novo = security.ensure_certificate(cert_path, key_path)
+            ssl_ctx = security.build_ssl_context(cert_path, key_path)
+            fingerprint = security.spki_fingerprint(cert_path)
+        except Exception as exc:  # noqa: BLE001
+            print(f"erro ao preparar o TLS: {exc}")
+            print("para diagnostico sem TLS: server.py --no-tls (exige PIN de 8+)")
+            raise SystemExit(1)
+
     wininput.init_dpi()
 
     banner = r"""
@@ -761,10 +953,22 @@ def main() -> None:
     print(banner)
     log(f"versao {VERSION}")
 
+    if tls_enabled:
+        log("TLS 1.3 ativo (certificado ECDSA P-256).")
+        if novo:
+            log(f"certificado novo em {cert_path}")
+        log("impressao digital da chave publica (confira no app):")
+        log("  " + security.format_fingerprint(fingerprint))
+    else:
+        log("AVISO: TLS DESATIVADO (--no-tls): o trafego vai em texto claro.")
+        log("       use apenas para diagnostico em rede confiavel.")
+
+    limiter = security.RateLimiter(STATE_PATH)
+
     server: Server | None = None
     try:
-        server = Server(args)
-        asyncio.run(server.run())
+        server = Server(args, pin_record, limiter, tls_enabled)
+        asyncio.run(server.run(ssl_ctx))
     except KeyboardInterrupt:
         print()
         log("encerrado.")
