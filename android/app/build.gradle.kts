@@ -11,8 +11,8 @@ android {
         applicationId = "com.localcontrol"
         minSdk = 24
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.3.1"
+        versionCode = 7
+        versionName = "1.3.3"
     }
 
     buildTypes {
