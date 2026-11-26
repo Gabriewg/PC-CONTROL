@@ -32,8 +32,8 @@ android {
         applicationId = "io.github.gabriewg.poltergeist"
         minSdk = 29
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.0.1"
+        versionCode = 10
+        versionName = "2.0.2"
     }
 
     // A chave de release fica FORA do repositorio. No CI ela vem dos GitHub

@@ -237,7 +237,7 @@ history). The server prints its version, IP addresses, the public-key
 fingerprint and the pairing QR:
 
 ```
-[2026-01-01 12:00:00] versao 2.0.1
+[2026-01-01 12:00:00] versao 2.0.2
 [2026-01-01 12:00:00] TLS 1.3 ativo (certificado ECDSA P-256).
 [2026-01-01 12:00:00] impressao digital da chave publica (confira no app):
 [2026-01-01 12:00:00]   nkIw NS/a dvHD L5Fg ipLe G0/t /KuQ B7Lm 7bgt TohR vYc=

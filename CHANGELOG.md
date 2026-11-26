@@ -3,6 +3,25 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 O histórico detalhado de cada mudança fica no `git log`.
 
+## [2.0.2] - 2026-11-25
+
+### Mudado
+
+- O app Android agora exige **Android 10+ (API 29)**, a versão mínima com TLS
+  1.3. Em aparelhos com Android 7–9 o Android recusa a instalação, em vez de
+  instalar um app que não conseguiria conectar.
+- Build Android: Gradle `9.9.2` e plugin do Android (AGP) `9.5.3`, com o Kotlin
+  embutido do AGP 9 (o plugin `org.jetbrains.kotlin.android` saiu). `compileSdk`
+  e build-tools `36`; `targetSdk` continua `34`.
+- Dependências do servidor: `cryptography` 50, `qrcode` 8.2, `Pillow` 13,
+  `pystray` 0.19.5 e `opencv-python-headless` 5.1.
+- README/README.en: aviso do SmartScreen/antivírus para o `.exe` sem assinatura
+  digital, com a conferência do SHA-256.
+- Roadmap: o servidor empacotado em `.exe` foi marcado como feito e entraram as
+  próximas ideias (área de transferência, teclas especiais, reconexão
+  automática, qualidade adaptativa e derrubar a sessão ao revogar um aparelho).
+- Versões: servidor `2.0.2`, app `2.0.2` (versionCode 10).
+
 ## [2.0.1] - 2026-11-25
 
 ### Segurança

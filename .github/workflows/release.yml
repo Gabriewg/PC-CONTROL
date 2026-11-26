@@ -106,6 +106,14 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Garantir o SDK 36
+        shell: bash
+        run: |
+          SDKMANAGER=$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" > /dev/null || true
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
+
       - name: Preparar a chave de assinatura
         shell: bash
         env:
