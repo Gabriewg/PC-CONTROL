@@ -7,7 +7,7 @@ pillow>=10.0
 cryptography>=50.0.2
 
 # Pareamento por QR Code e aviso de conexao na bandeja do Windows.
-qrcode>=7.4
+qrcode>=8.2
 pystray>=0.19
 
 # Opcional (Windows): captura via GPU com Desktop Duplication.
