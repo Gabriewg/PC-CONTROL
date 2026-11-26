@@ -35,6 +35,12 @@ pareamento, PIN, aparelhos e sessões. Nada de abrir `.bat` nem console.
    ```
 
    O hash precisa ser igual ao publicado na release.
+
+   > **Aviso do Windows:** como o `Poltergeist.exe` não tem assinatura digital
+   > paga, o SmartScreen pode mostrar *"O Windows protegeu o computador"* e
+   > alguns antivírus podem alertar. Isso é esperado em um programa portátil sem
+   > assinatura. Confira o SHA-256 acima; se bater, clique em **Mais
+   > informações → Executar assim mesmo**.
 3. Dê duplo clique. Na primeira execução a própria janela pede o PIN e cria o
    certificado TLS; o servidor já sobe ligado.
 
@@ -45,8 +51,9 @@ use **Sair** no menu da bandeja ou no rodapé da janela.
 
 Baixe o `Poltergeist-<versão>.apk` na mesma página de
 [Releases](https://github.com/Gabriewg/Poltergeist/releases) e instale no
-celular (sideload). O TLS 1.3 exige Android 10+; o app instala no 7.0+, mas sem
-TLS não há conexão.
+celular (sideload). O app exige **Android 10+ (API 29)**, a versão mínima com
+TLS 1.3. Em aparelhos mais antigos o Android recusa a instalação — é
+proposital, porque sem TLS não existe conexão segura.
 
 O APK é assinado com a chave de release do projeto, guardada em **GitHub
 Secrets** (nunca no repositório): a versão nova instala **por cima** da
@@ -170,7 +177,7 @@ antiga. Só o link novo, `poltergeist://`, é gerado daqui em diante.
 | Parte | Requisitos |
 |---|---|
 | Servidor | Windows 10/11. O `Poltergeist.exe` já traz tudo; para rodar pelo Python, 3.10+ (as dependências são instaladas pelo `iniciar.bat`) |
-| App | **Android 10+** (API 29) para o TLS 1.3; o APK instala no 7.0+, mas conexões TLS exigem o 10+ |
+| App | **Android 10+** (API 29), a versão mínima com TLS 1.3; em versões anteriores o Android recusa a instalação |
 | Compilar o app | JDK 17 e Android SDK (API 34); o Gradle 8.7 é baixado pelo wrapper |
 
 ## 1. Rodar o servidor no PC
@@ -651,7 +658,7 @@ serve para publicar. A chave usada na 2.0.0 foi aposentada.
 | "aparelho nao reconhecido" | O aparelho foi revogado (`--forget-devices` ou bandeja) ou o `devices.json` foi apagado. Pareie de novo |
 | Câmera não abre | Permissão de câmera negada ou aparelho sem câmera. Use **colar o link** no diálogo de pareamento |
 | Bandeja não aparece | `pystray`/`Pillow` ausentes ou `--no-tray`. O aviso de conexão continua no console e no log |
-| "TLS 1.3 exige Android 10+" | Aparelho antigo. O TLS 1.3 do app precisa de Android 10 (API 29) ou mais novo |
+| "TLS 1.3 exige Android 10+" | Aparelho antigo: o app exige Android 10 (API 29) ou mais novo e recusa a instalação em versões anteriores |
 | "o PC nao aceitou TLS 1.3" | O servidor está com `--no-tls` ou é uma versão antiga. Rode o `server.py` atualizado, sem `--no-tls` |
 
 ## Limitações conhecidas
@@ -694,11 +701,17 @@ remoto.
 - [ ] Vídeo com H.264/MediaCodec (menos banda, mais FPS)
 - [ ] Áudio do PC → celular
 - [ ] Transferência de arquivos (arrastar e soltar)
+- [ ] Sincronização da área de transferência (copiar e colar entre PC e celular)
+- [ ] Barra de teclas especiais (Esc, Tab, Win, F1–F12)
 - [ ] Atalhos personalizados e macros
+- [ ] Reconexão automática no app quando a rede cai
+- [ ] Qualidade de vídeo adaptativa pela latência medida
+- [ ] Derrubar a sessão na hora ao revogar um aparelho (hoje a sessão aberta
+      continua até terminar)
 - [x] TLS 1.3 com certificado local e pinning da chave pública
 - [x] PIN por desafio-resposta + rate limit persistente
 - [x] Pareamento por QR Code com token de uso único e credencial por aparelho
-- [ ] Servidor empacotado como `.exe` (PyInstaller), sem precisar de Python
+- [x] Servidor empacotado como `.exe` (PyInstaller), sem precisar de Python
 - [ ] Conexão sem digitar IP (fallback entre últimos endereços, MagicDNS e LAN)
 - [ ] Serviço do Windows (`SYSTEM`) com troca de área de trabalho para enxergar
       UAC/tela de login e permitir entrada em programas elevados. É a mesma

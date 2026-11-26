@@ -41,6 +41,12 @@ devices and live sessions — no `.bat` files and no console.
    Get-FileHash .\Poltergeist.exe -Algorithm SHA256
    ```
 
+   > **Windows warning:** because `Poltergeist.exe` has no paid code-signing
+   > certificate, SmartScreen may show *"Windows protected your PC"* and some
+   > antivirus tools may flag it. That is expected for an unsigned portable
+   > program. Check the SHA-256 above; if it matches, click **More info → Run
+   > anyway**.
+
 3. Double-click it. On first run the window asks for a PIN and creates the TLS
    certificate; the server starts enabled.
 
@@ -51,8 +57,9 @@ or the window footer to stop the server.
 
 Download `Poltergeist-<version>.apk` from the same
 [Releases](https://github.com/Gabriewg/Poltergeist/releases) page and install it
-on the phone (sideload). TLS 1.3 requires Android 10+; the app installs on 7.0+,
-but without TLS it cannot connect.
+on the phone (sideload). The app requires **Android 10+ (API 29)**, the minimum
+version with TLS 1.3. Older devices refuse the installation on purpose, because
+without TLS there is no secure connection.
 
 The APK is signed with the project's private release key, kept in **GitHub
 Secrets** (never in the repository): a new version installs **over** the
@@ -202,7 +209,7 @@ rendering/gesture layer. No remote-desktop framework (VNC, RDP, WebRTC) is used.
 | Part | Requirements |
 |---|---|
 | Server | Windows 10/11. `Poltergeist.exe` bundles everything; to run from Python, 3.10+ (dependencies are installed by `iniciar.bat`) |
-| App | **Android 10+** (API 29) for TLS 1.3; the APK installs on 7.0+, but TLS connections require 10+ |
+| App | **Android 10+** (API 29), the minimum version with TLS 1.3; older versions refuse the installation |
 | Building the app | JDK 17 and Android SDK (API 34); Gradle 8.7 is downloaded by the wrapper |
 
 ## Quick start
@@ -473,11 +480,17 @@ same approach used by mainstream remote-access tools.
 - [ ] H.264/MediaCodec video (less bandwidth, more FPS)
 - [ ] PC audio → phone
 - [ ] File transfer (drag and drop)
+- [ ] Clipboard sync (copy and paste between PC and phone)
+- [ ] Special-keys bar (Esc, Tab, Win, F1–F12)
 - [ ] Custom shortcuts and macros
+- [ ] Automatic reconnect in the app when the network drops
+- [ ] Adaptive video quality based on measured latency
+- [ ] Drop the session immediately when a device is revoked (today the open
+      session continues until it ends)
 - [x] TLS 1.3 with local certificate and public-key pinning
 - [x] Challenge-response PIN + persistent rate limiting
 - [x] QR pairing with single-use token and per-device credential
-- [ ] Server packaged as a `.exe` (PyInstaller), no Python required
+- [x] Server packaged as a `.exe` (PyInstaller), no Python required
 - [ ] Connect without typing an IP (last-address fallback, MagicDNS, LAN)
 - [ ] Windows service (`SYSTEM`) with desktop switching for UAC/login and input
       into elevated windows (`WTSGetActiveConsoleSessionId`, `CreateProcessAsUser`,

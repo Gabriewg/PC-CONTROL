@@ -31,7 +31,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.gabriewg.poltergeist"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 34
         versionCode = 9
         versionName = "2.0.1"
