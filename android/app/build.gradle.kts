@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Chave de assinatura: nunca no repositorio. O CI usa os GitHub Secrets; para
@@ -27,7 +26,7 @@ val arquivoChave = chave("storeFile", "POLTERGEIST_KEYSTORE")?.let { valor ->
 
 android {
     namespace = "io.github.gabriewg.poltergeist"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.gabriewg.poltergeist"
@@ -75,10 +74,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 }
 
